@@ -7,6 +7,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-05-06
+
+### Added
+- CLI command `ddr export-splunk` — emits a SPL `NOT (...)` clause from a `suppress` DDR's tuning block. Lowers selections through sigma-to-spl's `SplunkBackend` + `PostProcessor._apply_field_map()` for Corelight/Zeek-correct field names.
+- `--format savedsearches` flag — emits a `savedsearches.conf` stanza instead of a bare fragment.
+- `--config <path>` flag — override the default sigma-to-spl config YAML; falls back to `../sigma-to-spl/config/corelight.yml` when sigma-to-spl is installed as a sibling editable install.
+- Splunk exporter (`ddr.exporters.splunk`) as a public library API: `build_splunk_suppression()`, `export_to_spl()`.
+- `splunk-fragment.spl` artifacts for all three suppress worked examples (PsExec/SCCM, Nessus scanner, scheduled-task vendor noise).
+- 13 new tests covering `_strip_not` logic, missing-dependency error, non-suppress guard, savedsearches format, file write, and integration against all suppress examples.
+
+### Notes
+- sigma-to-spl is an optional dependency (not on PyPI). `ddr export-splunk` raises a `RuntimeError` with install instructions if it is not available; all other commands are unaffected.
+- No schema changes. v0.1 DDR records are fully compatible.
+
 ## [0.1.0] — 2026-05-06
 
 ### Added
