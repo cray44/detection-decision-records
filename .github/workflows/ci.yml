@@ -63,3 +63,15 @@ jobs:
           python-version: "3.12"
       - run: pip install -e ".[dev]"
       - run: ddr validate examples/
+      # export-splunk requires sigma-to-spl (sibling editable install, not on PyPI).
+      # Install from a sibling checkout if present; skip gracefully otherwise.
+      - name: Export Splunk fragments (requires sigma-to-spl)
+        run: |
+          if [ -d "../sigma-to-spl" ]; then
+            pip install -e ../sigma-to-spl
+            ddr export-splunk examples/01-psexec-admin-suppression/ddr.yml
+            ddr export-splunk examples/02-nessus-network-scanner/ddr.yml
+            ddr export-splunk examples/03-scheduled-task-vendor-noise/ddr.yml
+          else
+            echo "sigma-to-spl not found at ../sigma-to-spl — skipping export-splunk check"
+          fi

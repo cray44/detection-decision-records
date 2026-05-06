@@ -343,6 +343,52 @@ def cmd_export_sigma_filter(
         typer.echo(result, nl=False)
 
 
+@app.command("export-splunk")
+def cmd_export_splunk(
+    path: Path = typer.Argument(..., help="DDR file with decision.kind == 'suppress'."),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Write SPL here (default: stdout)."),
+    fmt: str = typer.Option("fragment", "--format", help="Output format: fragment | savedsearches."),
+    config: Path | None = typer.Option(None, "--config", help="Path to sigma-to-spl config YAML."),
+) -> None:
+    """Emit a SPL NOT clause from a suppress DDR record (requires sigma-to-spl)."""
+    if not path.exists():
+        typer.echo(f"ERROR: {path} not found", err=True)
+        raise typer.Exit(1)
+
+    if fmt not in ("fragment", "savedsearches"):
+        typer.echo("ERROR: --format must be 'fragment' or 'savedsearches'", err=True)
+        raise typer.Exit(1)
+
+    try:
+        record = _load_record(path)
+    except (ValidationError, ValueError) as exc:
+        typer.echo(f"ERROR: {path}: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if not isinstance(record.decision, SuppressDecision):
+        typer.echo(
+            f"ERROR: decision.kind is '{record.decision.kind}', expected 'suppress'",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    try:
+        from ddr.exporters.splunk import export_to_spl
+
+        result = export_to_spl(record, output=output, fmt=fmt, config=config)
+    except RuntimeError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(1)
+    except Exception as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if output:
+        typer.echo(f"Exported SPL fragment to {output}")
+    else:
+        typer.echo(result, nl=False)
+
+
 @app.command("refresh-hash")
 def cmd_refresh_hash(
     path: Path = typer.Argument(..., help="DDR file to update."),

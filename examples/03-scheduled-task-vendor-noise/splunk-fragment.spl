@@ -1,0 +1,1 @@
+NOT (ParentImage IN ("C:\\Program Files\\Adobe\\*", "C:\\Program Files\\Microsoft\\*", "C:\\Program Files (x86)\\Microsoft\\*", "C:\\Program Files\\CrowdStrike\\*", "C:\\Program Files\\Tenable\\*"))

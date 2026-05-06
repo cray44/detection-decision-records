@@ -1,0 +1,1 @@
+NOT (ParentImage IN ("*\\CCM\\ccmexec.exe", "*\\SMS\\Bin\\ccmsetup.exe"))
