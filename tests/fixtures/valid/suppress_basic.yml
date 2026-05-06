@@ -1,0 +1,36 @@
+ddr_version: "0.1"
+id: f47ac10b-58cc-4372-a567-0e02b2c3d479
+title: "Suppress: PsExec from SCCM endpoints"
+description: "IT Operations uses PsExec via SCCM for patch management on corp endpoints."
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: d7a95147-145f-4678-b555-b7a3c9b16830
+    content_hash: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    source: sigmahq
+    path_or_url: "https://github.com/SigmaHQ/sigma/blob/main/rules/windows/process_creation/proc_creation_win_sysinternals_psexec_execution.yml"
+decision:
+  kind: suppress
+  rationale: "IT Operations runs PsExec from SCCM ccmexec.exe parent process for scheduled patch cycles."
+  tuning:
+    logsource:
+      category: process_creation
+      product: windows
+    selections:
+      known_fp_sccm:
+        ParentImage|endswith:
+          - \CCM\ccmexec.exe
+          - \SMS\Bin\ccmsetup.exe
+    condition: not known_fp_sccm
+lifecycle:
+  status: active
+  created_on: "2025-01-15T09:00:00Z"
+  activated_on: "2025-01-16T12:00:00Z"
+  expires_on: "2026-01-16T12:00:00Z"
+  review_cadence_days: 90
+provenance:
+  author: alice@example.com
+  reviewers:
+    - bob@example.com
+  ticket_refs:
+    - SOC-1234

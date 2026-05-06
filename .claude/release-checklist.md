@@ -1,0 +1,1 @@
+Run the full DDR release checklist: CHANGELOG update, semantic version bump, schema validation, CLI tests, SigmaHQ example check, README/docs update, and GitHub release draft.

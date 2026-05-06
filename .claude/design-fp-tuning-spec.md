@@ -1,0 +1,1 @@
+Design or evolve the DDR FP-tuning spec. Output: clear spec markdown, updated JSON Schema, example records, and migration notes. Always keep it minimal and Sigma-native.

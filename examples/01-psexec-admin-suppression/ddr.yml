@@ -1,0 +1,61 @@
+ddr_version: "0.1"
+id: 550e8400-e29b-41d4-a716-446655440001
+title: "Suppress: PsExec execution from SCCM management endpoints"
+description: >
+  IT Operations runs PsExec via SCCM (ccmexec.exe parent) for patch deployment
+  and remote diagnostics on domain endpoints. This generates ~40 alerts/day with
+  100% FP rate from the management VLAN.
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: 4a6a3b37-1bef-4741-ae2d-c34cca8c8e77
+    content_hash: sha256:9f75c9941f1036d9221ff44379beb32cf4ebc71e1319ec0ee62492992a83b829
+    source: sigmahq
+    path_or_url: "https://github.com/SigmaHQ/sigma/blob/main/rules/windows/process_creation/proc_creation_win_sysinternals_psexec_execution.yml"
+decision:
+  kind: suppress
+  rationale: >
+    SCCM ccmexec.exe spawning PsExec is a documented IT Ops workflow for patch
+    cycle management (see RUNBOOK-SCCM-12). This is not lateral movement —
+    the parent-child chain is distinct from attacker use (PsExec from cmd.exe
+    or powershell.exe). Narrowing to the two known SCCM parent paths eliminates
+    the FP class without silencing attacker-shaped invocations.
+  tuning:
+    filter_title: "FP Filter: PsExec from SCCM management agents"
+    filter_description: >
+      Suppresses PsExec invocations where the parent is a known SCCM component.
+      Does NOT suppress PsExec from shells, scheduled tasks, or WMI parents.
+    logsource:
+      category: process_creation
+      product: windows
+    selections:
+      known_fp_sccm_agent:
+        ParentImage|endswith:
+          - \CCM\ccmexec.exe
+          - \SMS\Bin\ccmsetup.exe
+    condition: not known_fp_sccm_agent
+lifecycle:
+  status: active
+  created_on: "2025-10-01T14:00:00Z"
+  activated_on: "2025-10-02T09:00:00Z"
+  expires_on: "2027-01-01T00:00:00Z"
+  review_cadence_days: 180
+  last_reviewed_on: "2025-10-02T09:00:00Z"
+provenance:
+  author: alice@corp.example.com
+  reviewers:
+    - bob@corp.example.com
+  approved_by: bob@corp.example.com
+  ticket_refs:
+    - SOC-4421
+  evidence:
+    - type: splunk_query
+      ref: "savedsearch://FP_PsExec_SCCM_Sample"
+      note: "30-day Splunk query confirming all ~40 daily alerts match the SCCM parent pattern."
+    - type: runbook
+      ref: "https://wiki.corp.example.com/RUNBOOK-SCCM-12"
+      note: "SCCM patch management runbook documenting PsExec usage for remote execution."
+scope:
+  environments:
+    - production
+    - corporate

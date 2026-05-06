@@ -1,0 +1,35 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
+    hooks:
+      - id: prettier
+        types_or: [markdown, json, yaml]
+        exclude: ^spec/ddr-v0\.1\.schema\.json$
+
+  - repo: local
+    hooks:
+      - id: schema-drift
+        name: schema drift check (regenerate from Pydantic; fail if differs)
+        entry: python -m ddr._internal.schema_drift_check
+        language: system
+        pass_filenames: false
+        files: ^(src/ddr/models/.*\.py|spec/ddr-v0\.1\.schema\.json)$
+        stages: [pre-commit]

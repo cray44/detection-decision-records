@@ -1,0 +1,1 @@
+Output ONLY the 7-section thinking process (Refined Goal → Impact → Edge Cases → Testing → Sigma Compatibility → etc.). Do NOT write any code until I explicitly say “IMPLEMENT”.

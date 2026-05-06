@@ -1,0 +1,1 @@
+Create a high-quality worked example using a real noisy SigmaHQ rule. Include: original rule → DDR record → exported filter → validation steps.

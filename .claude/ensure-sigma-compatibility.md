@@ -1,0 +1,1 @@
+Review any change for perfect Sigma ecosystem compatibility. Check rule IDs, field names, filter export format, and backwards compatibility with SigmaHQ rules.

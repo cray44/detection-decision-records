@@ -1,0 +1,18 @@
+title: 'FP Filter: Vendor scheduled tasks from Program Files'
+name: filter_550e8400
+status: experimental
+description: Suppress schtasks.exe /create from known vendor install paths.
+logsource:
+  category: process_creation
+  product: windows
+rules:
+- f2f1f8d0-5534-4e1d-bcb0-6ab80cbf4a4f
+filter:
+  known_fp_vendor_paths:
+    ParentImage|startswith:
+    - C:\Program Files\Adobe\
+    - C:\Program Files\Microsoft\
+    - C:\Program Files (x86)\Microsoft\
+    - C:\Program Files\CrowdStrike\
+    - C:\Program Files\Tenable\
+condition: not known_fp_vendor_paths

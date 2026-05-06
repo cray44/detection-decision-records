@@ -1,0 +1,1 @@
+Design a new or improved DDR CLI command (`ddr <subcommand>`). Use Typer. Include: help text, argument validation, Pydantic models, tests, and example usage.

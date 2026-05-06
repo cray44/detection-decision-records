@@ -1,0 +1,33 @@
+title: Suspicious Scheduled Task Creation
+id: f2f1f8d0-5534-4e1d-bcb0-6ab80cbf4a4f
+status: test
+description: Detects scheduled task creation via schtasks.exe with suspicious patterns.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+author: Florian Roth (Nextron Systems)
+date: 2021-11-01
+modified: 2023-06-20
+tags:
+  - attack.execution
+  - attack.persistence
+  - attack.t1053.005
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith: \schtasks.exe
+    CommandLine|contains:
+      - /create
+      - /sc
+  filter_system:
+    User|contains:
+      - AUTHORITY\SYSTEM
+      - AUTHORITY\LOCAL SERVICE
+      - AUTHORITY\NETWORK SERVICE
+  condition: selection and not filter_system
+falsepositives:
+  - Software installation (Adobe, Microsoft, antivirus vendors)
+  - Windows Update components
+  - Backup software
+level: medium
