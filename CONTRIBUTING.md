@@ -1,6 +1,6 @@
 # Contributing to DDR
 
-> DDR is pre-alpha. The spec is being designed end-to-end before v0.1 tag. External contributions are welcome but the schema is unstable.
+> DDR is alpha. The spec is stable at v0.4 but may evolve. External contributions are welcome — see locked decisions in the design docs before opening a spec-change PR.
 
 ## Before opening an issue or PR
 
@@ -24,7 +24,6 @@ pytest
 - **Ruff** for lint + format. CI fails on ruff violations.
 - **Pydantic v2** is the source of truth for the schema. Hand-editing `spec/ddr-v0.1.schema.json` is not allowed — the file is regenerated from the models and CI fails on drift.
 - **Type hints everywhere.** No `Any` without a comment explaining why.
-- **No `Co-Authored-By: Claude`** in commit messages.
 
 ## Commit style
 

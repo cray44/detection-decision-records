@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "ddr"
+name = "ddr-detect"
 version = "0.4.0"
 description = "Detection Decision Records — governance/operational layer for detection-as-code"
 readme = "README.md"

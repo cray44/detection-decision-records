@@ -17,7 +17,7 @@ DDR sits between Sigma rules, Sigma Filters/suppressions, and ADS writeups. It r
 
 ```bash
 # Not yet on PyPI — install from source
-pip install -e "git+https://github.com/cray44/detection-decision-records.git#egg=ddr"
+pip install -e "git+https://github.com/cray44/detection-decision-records.git#egg=ddr-detect"
 # or: git clone + pip install -e .
 ```
 
