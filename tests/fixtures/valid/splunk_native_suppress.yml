@@ -1,0 +1,23 @@
+ddr_version: "0.3"
+id: 7c3e9a2f-b841-4d12-9f6e-1a5c8d047b3e
+title: "Suppress: Excessive Failed Logins — vuln scanner FP"
+description: "Test fixture for Splunk-native target validation."
+target:
+  kind: splunk
+  query_ref:
+    name: Excessive Failed Logins From Single Source
+    app: DA-ESS-AccessProtection
+decision:
+  kind: suppress
+  rationale: "Authorized vuln scanner generating expected failed login events."
+  tuning:
+    kind: splunk
+    filter_title: "FP Filter: vuln scanner VLAN"
+    splunk_filter: "src_ip=\"10.20.30.0/24\""
+lifecycle:
+  status: active
+  created_on: "2026-03-10T11:00:00Z"
+  activated_on: "2026-03-11T09:00:00Z"
+  expires_on: "2027-03-10T00:00:00Z"
+provenance:
+  author: cray44@example.com

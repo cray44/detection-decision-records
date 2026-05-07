@@ -10,9 +10,10 @@ from typing import Any
 
 import yaml
 
-from ddr.models.record import DDRRecord, SuppressDecision
+from ddr.models.record import DDRRecord, SigmaTuning, SplunkTuning, SuppressDecision
 
 _NOT_RE = re.compile(r"^not\s+\(?(.+?)\)?$", re.IGNORECASE)
+_OUTER_NOT_RE = re.compile(r"^NOT\s*\((.+)\)$", re.DOTALL)
 
 
 def _strip_not(condition: str) -> tuple[str, bool]:
@@ -23,6 +24,14 @@ def _strip_not(condition: str) -> tuple[str, bool]:
     return condition.strip(), False
 
 
+def _normalize_splunk_filter(splunk_filter: str) -> str:
+    """Strip outer NOT(...) wrapper if present; return inner clause."""
+    m = _OUTER_NOT_RE.match(splunk_filter.strip())
+    if m:
+        return m.group(1).strip()
+    return splunk_filter.strip()
+
+
 def _require_sigma_to_spl() -> None:
     try:
         import sigma_to_spl  # noqa: F401
@@ -30,22 +39,13 @@ def _require_sigma_to_spl() -> None:
         from sigma.backends.splunk import SplunkBackend  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
-            f"sigma-to-spl is required for export-splunk ({exc}). "
+            f"sigma-to-spl is required for export-splunk on Sigma targets ({exc}). "
             "Install with: pip install -e <path-to-sigma-to-spl>"
         ) from exc
 
 
-def build_splunk_suppression(record: DDRRecord, config: Path | Any | None = None) -> str:
-    """Return a SPL NOT clause from a suppress DDR record.
-
-    config: Path to a sigma-to-spl config YAML, a SplunkConfig instance,
-            or None to use default_config() (resolves ../sigma-to-spl/config/corelight.yml).
-    """
-    if not isinstance(record.decision, SuppressDecision):
-        raise ValueError(
-            f"export-splunk requires decision.kind='suppress', got '{record.decision.kind}'"
-        )
-
+def _build_splunk_suppression_sigma(record: DDRRecord, config: Path | Any | None = None) -> str:
+    """Lower a Sigma-targeted suppress record to a SPL NOT clause."""
     _require_sigma_to_spl()
 
     from sigma.collection import SigmaCollection
@@ -54,7 +54,7 @@ def build_splunk_suppression(record: DDRRecord, config: Path | Any | None = None
     from sigma_to_spl.config import default_config, load_config
 
     dec = record.decision
-    tuning = dec.tuning
+    tuning: SigmaTuning = dec.tuning  # type: ignore[assignment]
     ls = tuning.logsource
 
     inner_cond, had_not = _strip_not(tuning.condition)
@@ -62,7 +62,7 @@ def build_splunk_suppression(record: DDRRecord, config: Path | Any | None = None
         warnings.warn(
             f"condition '{tuning.condition}' does not start with 'not' — "
             "emitting plain clause without NOT wrapper",
-            stacklevel=2,
+            stacklevel=3,
         )
 
     logsource_dict: dict[str, str] = {}
@@ -119,6 +119,31 @@ def build_splunk_suppression(record: DDRRecord, config: Path | Any | None = None
     return f"NOT ({spl})" if had_not else f"({spl})"
 
 
+def _build_splunk_suppression_native(record: DDRRecord) -> str:
+    """Return SPL NOT clause from a Splunk-native suppress record (no sigma-to-spl required)."""
+    dec = record.decision
+    tuning: SplunkTuning = dec.tuning  # type: ignore[assignment]
+    inner = _normalize_splunk_filter(tuning.splunk_filter)
+    return f"NOT ({inner})"
+
+
+def build_splunk_suppression(record: DDRRecord, config: Path | Any | None = None) -> str:
+    """Return a SPL NOT clause from a suppress DDR record.
+
+    For Sigma targets: requires sigma-to-spl. config is a Path, SplunkConfig, or None.
+    For Splunk-native targets: no sigma-to-spl needed; config is ignored.
+    """
+    if not isinstance(record.decision, SuppressDecision):
+        raise ValueError(
+            f"export-splunk requires decision.kind='suppress', got '{record.decision.kind}'"
+        )
+
+    if record.target.kind == "splunk":
+        return _build_splunk_suppression_native(record)
+
+    return _build_splunk_suppression_sigma(record, config=config)
+
+
 def export_to_spl(
     record: DDRRecord,
     output: Path | None = None,
@@ -133,10 +158,16 @@ def export_to_spl(
     spl = build_splunk_suppression(record, config=config)
 
     if fmt == "savedsearches":
-        from sigma_to_spl.postprocess import format_savedsearches
+        if record.target.kind == "splunk":
+            tuning: SplunkTuning = record.decision.tuning  # type: ignore[assignment]
+            title = tuning.filter_title or record.title
+            result = _format_savedsearches_native(title, spl)
+        else:
+            from sigma_to_spl.postprocess import format_savedsearches
 
-        title = record.decision.tuning.filter_title or record.title  # type: ignore[union-attr]
-        result = format_savedsearches(title, spl)
+            tuning_sigma: SigmaTuning = record.decision.tuning  # type: ignore[assignment]
+            title = tuning_sigma.filter_title or record.title
+            result = format_savedsearches(title, spl)
     else:
         result = spl
 
@@ -144,3 +175,16 @@ def export_to_spl(
         output.write_text(result, encoding="utf-8")
 
     return result
+
+
+def _format_savedsearches_native(title: str, spl_fragment: str) -> str:
+    """Format a savedsearches.conf stanza for a native Splunk target."""
+    stanza_name = re.sub(r"[^a-z0-9_]", "_", title.lower()).strip("_")
+    return (
+        f"[{stanza_name}]\n"
+        f"search = {spl_fragment}\n"
+        f"dispatch.earliest_time = -24h\n"
+        f"dispatch.latest_time = now\n"
+        f"enableSched = 1\n"
+        f"cron_schedule = 0 * * * *\n"
+    )

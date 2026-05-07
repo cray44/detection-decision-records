@@ -1,0 +1,47 @@
+# Example 06 — Splunk-Native Savedsearch Suppression
+
+**Pattern:** Detection lives only in the SIEM. No Sigma rule exists.
+
+## Scenario
+
+`DA-ESS-AccessProtection/Excessive Failed Logins From Single Source` fires ~120 alerts/week.
+95% are from two known-benign sources:
+
+1. Nessus/Qualys credentialed scans from the vuln-scanner VLAN (`10.20.30.0/24`)
+2. `svc_ldap_health` performing LDAP bind health checks
+
+Neither source can be expressed as a Sigma rule (raw SPL aggregation with `stats count > 50`
+and CIDR matching — outside Sigma's detection grammar for this use case).
+
+## DDR record
+
+`ddr.yml` uses `target.kind: splunk` with a `SplunkQueryRef` pointing to the savedsearch by
+name and app. The `decision.tuning` is a `SplunkTuning` block carrying a raw SPL filter clause.
+
+## Exporting the suppression fragment
+
+```bash
+# No sigma-to-spl required
+ddr export-splunk ddr.yml
+# → NOT (src_ip="10.20.30.0/24" OR user="svc_ldap_health")
+
+ddr export-splunk ddr.yml --format savedsearches
+```
+
+Paste the fragment into your detection's SPL as a `NOT` clause, or append to the savedsearch.
+
+## Why not Sigma?
+
+The detection uses `stats count > 50` — a Sigma aggregation condition. The FP suppression
+involves CIDR notation (`10.20.30.0/24`) which Splunk supports natively but Sigma's
+`cidr` modifier only covers the detection logic, not filter conditions. Writing this as a
+Sigma Filter would require duplicating the aggregation logic, producing a filter that no
+backend can correctly lower. The SPL-native escape hatch is the right call here.
+
+## Back-porting this decision
+
+If this detection is ever rewritten as a Sigma rule, convert this DDR record:
+
+1. Change `target.kind` to `sigma`, add a `rule_ref` pointing to the new rule.
+2. Translate `splunk_filter` into Sigma `selections` + `condition`.
+3. Re-export via `ddr export-sigma-filter` and `ddr export-splunk`.

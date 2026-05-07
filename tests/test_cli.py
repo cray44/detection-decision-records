@@ -226,3 +226,108 @@ def test_refresh_hash_no_rule(tmp_path):
     fp.write_text("target:\n  rule_ref:\n    path_or_url: /no/such/rule.yml\n", encoding="utf-8")
     result = runner.invoke(app, ["refresh-hash", str(fp)])
     assert result.exit_code == 1
+
+
+# --- v0.3: ddr new --target splunk ---
+
+
+def test_new_splunk_target_with_name():
+    result = runner.invoke(app, ["new", "--target", "splunk", "--name", "My Noisy Detection"])
+    assert result.exit_code == 0
+    output = result.output
+    assert "ddr_version" in output
+    assert "splunk" in output
+    assert "My Noisy Detection" in output
+    assert "splunk_filter" in output
+
+
+def test_new_splunk_target_without_name_fails():
+    result = runner.invoke(app, ["new", "--target", "splunk"])
+    assert result.exit_code == 1
+    assert "--name" in result.output or "required" in result.output.lower()
+
+
+def test_new_splunk_target_custom_app():
+    result = runner.invoke(
+        app, ["new", "--target", "splunk", "--name", "My Detection", "--app", "DA-ESS-AccessProtection"]
+    )
+    assert result.exit_code == 0
+    assert "DA-ESS-AccessProtection" in result.output
+
+
+def test_new_invalid_target():
+    result = runner.invoke(app, ["new", "--target", "elastic"])
+    assert result.exit_code == 1
+
+
+# --- v0.3: export-sigma-filter on Splunk target ---
+
+
+def test_export_sigma_filter_splunk_target_fails(valid_fixtures_dir):
+    result = runner.invoke(
+        app, ["export-sigma-filter", str(valid_fixtures_dir / "splunk_native_suppress.yml")]
+    )
+    assert result.exit_code == 1
+    assert "splunk" in result.output.lower()
+
+
+# --- v0.3: validate mixed sigma+splunk directory ---
+
+
+def test_validate_splunk_native_fixture(valid_fixtures_dir):
+    result = runner.invoke(
+        app, ["validate", str(valid_fixtures_dir / "splunk_native_suppress.yml")]
+    )
+    assert result.exit_code == 0
+    assert "OK" in result.output
+
+
+def test_validate_mixed_directory(valid_fixtures_dir):
+    result = runner.invoke(app, ["validate", str(valid_fixtures_dir)])
+    assert result.exit_code == 0
+
+
+# --- v0.3: export-splunk on native target ---
+
+
+def test_export_splunk_native_target(valid_fixtures_dir):
+    result = runner.invoke(
+        app, ["export-splunk", str(valid_fixtures_dir / "splunk_native_suppress.yml")]
+    )
+    assert result.exit_code == 0
+    assert result.output.strip().startswith("NOT (")
+
+
+def test_export_splunk_native_target_savedsearches(valid_fixtures_dir):
+    result = runner.invoke(
+        app,
+        ["export-splunk", str(valid_fixtures_dir / "splunk_native_suppress.yml"), "--format", "savedsearches"],
+    )
+    assert result.exit_code == 0
+    assert "search = NOT" in result.output
+    assert "dispatch.earliest_time" in result.output
+
+
+def test_export_splunk_native_config_warns(valid_fixtures_dir, tmp_path):
+    fake_config = tmp_path / "config.yml"
+    fake_config.write_text("field_mappings: {}\n", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        ["export-splunk", str(valid_fixtures_dir / "splunk_native_suppress.yml"), "--config", str(fake_config)],
+    )
+    # Should warn but still succeed
+    assert "WARN" in result.output
+    assert result.exit_code == 0
+
+
+# --- v0.3: back-compat fixture validation ---
+
+
+def test_validate_v01_fixture_under_v03(valid_fixtures_dir):
+    result = runner.invoke(app, ["validate", str(valid_fixtures_dir / "suppress_basic.yml")])
+    assert result.exit_code == 0
+
+
+def test_validate_v02_fixture_under_v03(valid_fixtures_dir):
+    result = runner.invoke(app, ["validate", str(valid_fixtures_dir / "v0.2-record.yml")])
+    assert result.exit_code == 0

@@ -1,0 +1,31 @@
+ddr_version: "0.2"
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+title: "Suppress: Nessus scanner FP (v0.2 record)"
+description: "v0.2 back-compat fixture — tuning has no kind field."
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: d7a95147-145f-4678-b555-b7a3c9b16830
+    content_hash: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    source: sigmahq
+    path_or_url: "https://github.com/SigmaHQ/sigma/blob/main/rules/network/net_scan_nessus.yml"
+decision:
+  kind: suppress
+  rationale: "Authorized Nessus scans from known scanner hosts."
+  tuning:
+    logsource:
+      category: network_connection
+      product: zeek
+    selections:
+      known_scanners:
+        id.orig_h:
+          - 10.0.0.100
+          - 10.0.0.101
+    condition: not known_scanners
+lifecycle:
+  status: active
+  created_on: "2025-06-01T00:00:00Z"
+  activated_on: "2025-06-02T00:00:00Z"
+  expires_on: "2026-06-01T00:00:00Z"
+provenance:
+  author: bob@example.com

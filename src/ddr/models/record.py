@@ -1,6 +1,6 @@
 """DDRRecord — Pydantic v2 models (source of truth for JSON Schema).
 
-Design locked in docs/design/v0.1-design.md.
+Design locked in docs/design/v0.1-design.md and docs/design/v0.3-splunk-native-target.md.
 """
 
 from __future__ import annotations
@@ -16,12 +16,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 __all__ = [
     "DDRRecord",
     "SigmaTarget",
+    "SplunkTarget",
+    "SplunkQueryRef",
+    "Target",
     "RuleRef",
     "RuleSource",
     "SuppressDecision",
     "AcceptRiskDecision",
     "DeprecateDecision",
     "Decision",
+    "SigmaTuning",
+    "SplunkTuning",
     "Tuning",
     "LogSource",
     "Lifecycle",
@@ -91,6 +96,32 @@ class SigmaTarget(BaseModel):
     rule_ref: RuleRef
 
 
+class SplunkQueryRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(..., description="savedsearches stanza name")
+    app: str = Field(..., description="Splunk app context (e.g. 'search')")
+    query_hash: str | None = Field(default=None, description="sha256 of normalized SPL (optional in v0.3)")
+    path_or_url: str | None = Field(default=None, description="Link to source or savedsearches.conf path")
+
+    @field_validator("query_hash")
+    @classmethod
+    def validate_query_hash(cls, v: str | None) -> str | None:
+        if v is not None and not _CONTENT_HASH_RE.match(v):
+            raise ValueError("query_hash must be 'sha256:<64 lowercase hex chars>'")
+        return v
+
+
+class SplunkTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["splunk"] = "splunk"
+    query_ref: SplunkQueryRef
+
+
+Target = Annotated[SigmaTarget | SplunkTarget, Field(discriminator="kind")]
+
+
 class Evidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -149,11 +180,12 @@ class LogSource(BaseModel):
         return self
 
 
-class Tuning(BaseModel):
-    """Sigma-Filter-expressible IR. All v0.1 fields are losslessly exportable to a Sigma Filter."""
+class SigmaTuning(BaseModel):
+    """Sigma-Filter-expressible IR. All fields are losslessly exportable to a Sigma Filter."""
 
     model_config = ConfigDict(extra="forbid")
 
+    kind: Literal["sigma"] = "sigma"
     filter_title: str | None = None
     filter_description: str | None = None
     logsource: LogSource
@@ -168,12 +200,45 @@ class Tuning(BaseModel):
         return v
 
 
+# Back-compat alias: v0.1/v0.2 code that imports Tuning still works
+Tuning = SigmaTuning
+
+
+class SplunkTuning(BaseModel):
+    """Native SPL FP filter — no Sigma selections required."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["splunk"] = "splunk"
+    filter_title: str | None = None
+    filter_description: str | None = None
+    splunk_filter: str = Field(..., description="Raw SPL filter clause (FP condition written directly)")
+
+    @field_validator("splunk_filter")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("splunk_filter must not be empty or whitespace")
+        return v
+
+
+TuningUnion = Annotated[SigmaTuning | SplunkTuning, Field(discriminator="kind")]
+
+
 class SuppressDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["suppress"] = "suppress"
     rationale: str
-    tuning: Tuning
+    tuning: TuningUnion
+
+    @field_validator("tuning", mode="before")
+    @classmethod
+    def default_tuning_kind(cls, v: Any) -> Any:
+        # v0.1/v0.2 records have no kind field in tuning — default to sigma
+        if isinstance(v, dict) and "kind" not in v:
+            return {"kind": "sigma", **v}
+        return v
 
 
 class AcceptRiskDecision(BaseModel):
@@ -209,9 +274,9 @@ class DDRRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ddr_version: Annotated[str, Field(pattern=r"^0\.1$")]
+    ddr_version: Annotated[str, Field(pattern=r"^0\.[123]$")]
     id: UUID
-    target: SigmaTarget
+    target: Target
     title: str
     description: str
     decision: Decision
@@ -232,3 +297,12 @@ class DDRRecord(BaseModel):
             if not _X_KEY_RE.match(key):
                 raise ValueError(f"extension key '{key}' must start with 'x-' (got '{key}')")
         return v
+
+    @model_validator(mode="after")
+    def target_tuning_kind_match(self) -> "DDRRecord":
+        if isinstance(self.decision, SuppressDecision):
+            if self.target.kind != self.decision.tuning.kind:
+                raise ValueError(
+                    f"tuning.kind '{self.decision.tuning.kind}' must match target.kind '{self.target.kind}'"
+                )
+        return self

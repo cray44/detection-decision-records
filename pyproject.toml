@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ddr"
-version = "0.2.0"
+version = "0.3.0"
 description = "Detection Decision Records — governance/operational layer for detection-as-code"
 readme = "README.md"
 requires-python = ">=3.11"

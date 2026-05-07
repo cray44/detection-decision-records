@@ -160,6 +160,139 @@ def test_export_to_spl_writes_file(tmp_path):
     assert "NOT (" in result
 
 
+# ── v0.3: _normalize_splunk_filter ───────────────────────────────────────────
+
+def test_normalize_splunk_filter_plain():
+    from ddr.exporters.splunk import _normalize_splunk_filter
+    assert _normalize_splunk_filter("src_ip=10.0.0.1") == "src_ip=10.0.0.1"
+
+
+def test_normalize_splunk_filter_strips_outer_not():
+    from ddr.exporters.splunk import _normalize_splunk_filter
+    assert _normalize_splunk_filter("NOT (src_ip=10.0.0.1)") == "src_ip=10.0.0.1"
+
+
+def test_normalize_splunk_filter_compound():
+    from ddr.exporters.splunk import _normalize_splunk_filter
+    assert _normalize_splunk_filter('NOT (src_ip="10.0.0.0/8" OR user=svc_foo)') == 'src_ip="10.0.0.0/8" OR user=svc_foo'
+
+
+# ── v0.3: Splunk-native build_splunk_suppression (no sigma-to-spl) ───────────
+
+def _splunk_native_record_data(splunk_filter: str = 'src_ip="10.20.30.0/24"') -> dict:
+    return {
+        "ddr_version": "0.3",
+        "id": "7c3e9a2f-b841-4d12-9f6e-1a5c8d047b3e",
+        "title": "Suppress: Excessive Failed Logins",
+        "description": "FP suppression for vuln scanner.",
+        "target": {
+            "kind": "splunk",
+            "query_ref": {"name": "Excessive Failed Logins", "app": "DA-ESS-AccessProtection"},
+        },
+        "decision": {
+            "kind": "suppress",
+            "rationale": "Authorized scanner.",
+            "tuning": {
+                "kind": "splunk",
+                "splunk_filter": splunk_filter,
+            },
+        },
+        "lifecycle": {
+            "status": "active",
+            "created_on": _NOW.isoformat(),
+            "activated_on": _NOW.isoformat(),
+            "expires_on": _FUTURE.isoformat(),
+        },
+        "provenance": {"author": "cray44@example.com"},
+    }
+
+
+def test_build_splunk_suppression_native_returns_not_clause():
+    from ddr.exporters.splunk import build_splunk_suppression
+    record = DDRRecord.model_validate(_splunk_native_record_data())
+    result = build_splunk_suppression(record)
+    assert result == 'NOT (src_ip="10.20.30.0/24")'
+
+
+def test_build_splunk_suppression_native_strips_outer_not():
+    from ddr.exporters.splunk import build_splunk_suppression
+    record = DDRRecord.model_validate(_splunk_native_record_data('NOT (src_ip="10.20.30.0/24")'))
+    result = build_splunk_suppression(record)
+    assert result == 'NOT (src_ip="10.20.30.0/24")'
+
+
+def test_build_splunk_suppression_native_no_sigma_to_spl_needed(monkeypatch):
+    """Splunk-native export must not import sigma_to_spl."""
+    import sys
+    from ddr.exporters.splunk import build_splunk_suppression
+    record = DDRRecord.model_validate(_splunk_native_record_data())
+
+    # Simulate sigma-to-spl absent
+    original = sys.modules.get("sigma_to_spl")
+    sys.modules["sigma_to_spl"] = None  # type: ignore[assignment]
+    try:
+        result = build_splunk_suppression(record)
+        assert result.startswith("NOT (")
+    finally:
+        if original is None:
+            sys.modules.pop("sigma_to_spl", None)
+        else:
+            sys.modules["sigma_to_spl"] = original
+
+
+def test_export_to_spl_native_fragment():
+    from ddr.exporters.splunk import export_to_spl
+    record = DDRRecord.model_validate(_splunk_native_record_data())
+    result = export_to_spl(record, fmt="fragment")
+    assert result == 'NOT (src_ip="10.20.30.0/24")'
+
+
+def test_export_to_spl_native_savedsearches():
+    from ddr.exporters.splunk import export_to_spl
+    record = DDRRecord.model_validate(_splunk_native_record_data())
+    result = export_to_spl(record, fmt="savedsearches")
+    assert "excessive_failed_logins" in result
+    assert 'search = NOT (src_ip="10.20.30.0/24")' in result
+    assert "dispatch.earliest_time" in result
+
+
+# ── Integration: example 06 (no sigma-to-spl) ────────────────────────────────
+
+def test_example_06_validates():
+    from ruamel.yaml import YAML
+    ddr_path = EXAMPLES_DIR / "06-splunk-native-savedsearch" / "ddr.yml"
+    y = YAML(typ="safe")
+    with open(ddr_path, encoding="utf-8") as fh:
+        data = y.load(fh)
+    record = DDRRecord.model_validate(data)
+    assert record.target.kind == "splunk"
+
+
+def test_example_06_export_fragment(monkeypatch):
+    from ruamel.yaml import YAML
+    from ddr.exporters.splunk import build_splunk_suppression
+    import sys
+
+    ddr_path = EXAMPLES_DIR / "06-splunk-native-savedsearch" / "ddr.yml"
+    y = YAML(typ="safe")
+    with open(ddr_path, encoding="utf-8") as fh:
+        data = y.load(fh)
+    record = DDRRecord.model_validate(data)
+
+    # Prove it works without sigma-to-spl installed
+    original = sys.modules.get("sigma_to_spl")
+    sys.modules["sigma_to_spl"] = None  # type: ignore[assignment]
+    try:
+        result = build_splunk_suppression(record)
+        assert result.startswith("NOT (")
+        assert "10.20.30.0/24" in result
+    finally:
+        if original is None:
+            sys.modules.pop("sigma_to_spl", None)
+        else:
+            sys.modules["sigma_to_spl"] = original
+
+
 # ── Integration: real suppress examples ──────────────────────────────────────
 
 @requires_sigma_to_spl

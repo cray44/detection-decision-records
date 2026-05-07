@@ -1,0 +1,1 @@
+NOT (src_ip="10.20.30.0/24" OR user="svc_ldap_health")

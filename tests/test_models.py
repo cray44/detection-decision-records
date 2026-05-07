@@ -22,7 +22,11 @@ from ddr.models.record import (
     RuleRef,
     RuleSource,
     Scope,
+    SigmaTuning,
     SigmaTarget,
+    SplunkQueryRef,
+    SplunkTarget,
+    SplunkTuning,
     SuppressDecision,
     Tuning,
 )
@@ -249,7 +253,7 @@ def test_ddr_version_float_coerced():
 
 def test_ddr_version_wrong_value():
     with pytest.raises(ValidationError):
-        DDRRecord.model_validate(_suppress_record(ddr_version="0.2"))
+        DDRRecord.model_validate(_suppress_record(ddr_version="0.9"))
 
 
 def test_ddr_record_scope_optional():
@@ -272,3 +276,210 @@ def test_evidence_requires_note():
 def test_evidence_valid():
     ev = Evidence.model_validate({"type": "ticket", "ref": "JIRA-123", "note": "Ticket tracking this FP."})
     assert ev.type == EvidenceType.ticket
+
+
+# --- v0.3: SplunkQueryRef ---
+
+
+def _splunk_query_ref(**kwargs) -> dict:
+    return {"name": "My Detection", "app": "search", **kwargs}
+
+
+def test_splunk_query_ref_valid():
+    ref = SplunkQueryRef.model_validate(_splunk_query_ref())
+    assert ref.name == "My Detection"
+    assert ref.app == "search"
+    assert ref.query_hash is None
+    assert ref.path_or_url is None
+
+
+def test_splunk_query_ref_with_optional_fields():
+    ref = SplunkQueryRef.model_validate(
+        _splunk_query_ref(
+            query_hash="sha256:" + "b" * 64,
+            path_or_url="/opt/splunk/etc/apps/search/local/savedsearches.conf",
+        )
+    )
+    assert ref.query_hash == "sha256:" + "b" * 64
+
+
+def test_splunk_query_ref_invalid_hash():
+    with pytest.raises(ValidationError, match="query_hash"):
+        SplunkQueryRef.model_validate(_splunk_query_ref(query_hash="not-a-hash"))
+
+
+def test_splunk_query_ref_extra_field_rejected():
+    with pytest.raises(ValidationError):
+        SplunkQueryRef.model_validate(_splunk_query_ref(unknown="bad"))
+
+
+# --- v0.3: SplunkTarget ---
+
+
+def test_splunk_target_valid():
+    t = SplunkTarget.model_validate({"kind": "splunk", "query_ref": _splunk_query_ref()})
+    assert t.kind == "splunk"
+    assert t.query_ref.name == "My Detection"
+
+
+def test_splunk_target_extra_field_rejected():
+    with pytest.raises(ValidationError):
+        SplunkTarget.model_validate(
+            {"kind": "splunk", "query_ref": _splunk_query_ref(), "bad": "field"}
+        )
+
+
+# --- v0.3: SplunkTuning ---
+
+
+def test_splunk_tuning_valid():
+    t = SplunkTuning.model_validate(
+        {"kind": "splunk", "splunk_filter": "src_ip=10.0.0.1"}
+    )
+    assert t.splunk_filter == "src_ip=10.0.0.1"
+
+
+def test_splunk_tuning_blank_filter_rejected():
+    with pytest.raises(ValidationError, match="splunk_filter"):
+        SplunkTuning.model_validate({"kind": "splunk", "splunk_filter": "   "})
+
+
+def test_splunk_tuning_empty_filter_rejected():
+    with pytest.raises(ValidationError, match="splunk_filter"):
+        SplunkTuning.model_validate({"kind": "splunk", "splunk_filter": ""})
+
+
+def test_splunk_tuning_extra_field_rejected():
+    with pytest.raises(ValidationError):
+        SplunkTuning.model_validate(
+            {"kind": "splunk", "splunk_filter": "host=foo", "bad": "field"}
+        )
+
+
+# --- v0.3: Tuning alias ---
+
+
+def test_tuning_alias_is_sigma_tuning():
+    assert Tuning is SigmaTuning
+
+
+# --- v0.3: DDRRecord with Splunk target ---
+
+
+def _splunk_suppress_record(**overrides) -> dict:
+    base = {
+        "ddr_version": "0.3",
+        "id": str(_DDR_ID),
+        "title": "Suppress: noisy Splunk detection",
+        "description": "FP from authorized scanner.",
+        "target": {
+            "kind": "splunk",
+            "query_ref": {"name": "My Detection", "app": "search"},
+        },
+        "decision": {
+            "kind": "suppress",
+            "rationale": "Scanner FP.",
+            "tuning": {
+                "kind": "splunk",
+                "splunk_filter": "src_ip=10.0.0.0/8",
+            },
+        },
+        "lifecycle": {
+            "status": "active",
+            "created_on": _NOW.isoformat(),
+            "activated_on": _NOW.isoformat(),
+            "expires_on": _FUTURE.isoformat(),
+        },
+        "provenance": {"author": "alice@example.com"},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_ddr_record_splunk_target_suppress():
+    record = DDRRecord.model_validate(_splunk_suppress_record())
+    assert isinstance(record.target, SplunkTarget)
+    assert record.target.kind == "splunk"
+    assert isinstance(record.decision.tuning, SplunkTuning)  # type: ignore[union-attr]
+
+
+def test_ddr_record_splunk_target_accept_risk():
+    data = _splunk_suppress_record()
+    data["decision"] = {"kind": "accept-risk", "rationale": "Accepted."}
+    record = DDRRecord.model_validate(data)
+    assert isinstance(record.target, SplunkTarget)
+
+
+def test_ddr_record_splunk_target_deprecate():
+    data = _splunk_suppress_record()
+    data["lifecycle"] = {
+        "status": "retired",
+        "created_on": _NOW.isoformat(),
+        "retired_on": _NOW.isoformat(),
+        "retirement_reason": "replaced",
+    }
+    data["decision"] = {"kind": "deprecate", "rationale": "Retired."}
+    record = DDRRecord.model_validate(data)
+    assert isinstance(record.target, SplunkTarget)
+
+
+def test_ddr_record_cross_field_validator_kind_mismatch():
+    data = _splunk_suppress_record()
+    # Splunk target + Sigma tuning → should fail
+    data["decision"]["tuning"] = {
+        "kind": "sigma",
+        "logsource": {"category": "process_creation"},
+        "selections": {"fp": {"host": "foo"}},
+        "condition": "not fp",
+    }
+    with pytest.raises(ValidationError, match="tuning.kind"):
+        DDRRecord.model_validate(data)
+
+
+def test_ddr_record_cross_field_validator_sigma_target_splunk_tuning():
+    data = _suppress_record()
+    data["decision"]["tuning"] = {
+        "kind": "splunk",
+        "splunk_filter": "host=foo",
+    }
+    with pytest.raises(ValidationError, match="tuning.kind"):
+        DDRRecord.model_validate(data)
+
+
+def test_ddr_record_v01_back_compat_no_tuning_kind():
+    """v0.1 tuning without kind field defaults to sigma."""
+    record = DDRRecord.model_validate(_suppress_record())
+    assert isinstance(record.decision.tuning, SigmaTuning)  # type: ignore[union-attr]
+    assert record.decision.tuning.kind == "sigma"
+
+
+def test_ddr_record_v02_back_compat():
+    record = DDRRecord.model_validate(_suppress_record(ddr_version="0.2"))
+    assert record.ddr_version == "0.2"
+    assert isinstance(record.target, SigmaTarget)
+
+
+def test_ddr_version_02_accepted():
+    record = DDRRecord.model_validate(_suppress_record(ddr_version="0.2"))
+    assert record.ddr_version == "0.2"
+
+
+def test_ddr_version_03_accepted():
+    record = DDRRecord.model_validate(_splunk_suppress_record(ddr_version="0.3"))
+    assert record.ddr_version == "0.3"
+
+
+def test_mixed_sigma_splunk_directory_validates(valid_fixtures_dir):
+    """Both Sigma-targeted and Splunk-targeted fixtures parse cleanly."""
+    sigma_record = DDRRecord.model_validate(
+        __import__("ruamel.yaml", fromlist=["YAML"]).YAML(typ="safe").load(
+            (valid_fixtures_dir / "suppress_basic.yml").read_text()
+        )
+    )
+    splunk_record = DDRRecord.model_validate(
+        __import__("ruamel.yaml", fromlist=["YAML"]).YAML(typ="safe").load(
+            (valid_fixtures_dir / "splunk_native_suppress.yml").read_text()
+        )
+    )
+    assert sigma_record.target.kind == "sigma"
+    assert splunk_record.target.kind == "splunk"

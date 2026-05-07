@@ -1,4 +1,4 @@
-"""DDR command-line interface — five commands for v0.1."""
+"""DDR command-line interface."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from ruamel.yaml import YAML
 
 from ddr._internal.hash_utils import compute_content_hash
 from ddr.exporters.sigma_filter import export_to_yaml
-from ddr.models.record import DDRRecord, LifecycleStatus, SuppressDecision
+from ddr.models.record import DDRRecord, LifecycleStatus, SigmaTarget, SuppressDecision
 
 app = typer.Typer(
     name="ddr",
@@ -75,19 +75,48 @@ def _now_utc() -> str:
 
 @app.command("new")
 def cmd_new(
-    sigma_rule: Path = typer.Argument(..., help="Path to the Sigma rule YAML."),
+    sigma_rule: Path | None = typer.Argument(
+        default=None, help="Path to the Sigma rule YAML (required for --target sigma)."
+    ),
     output: Path | None = typer.Option(None, "--output", "-o", help="Write new DDR here (default: stdout)."),
     decision_kind: str = typer.Option(
         "suppress", "--decision", "-d", help="Decision type: suppress | accept-risk | deprecate."
     ),
+    target_kind: str = typer.Option(
+        "sigma", "--target", "-t", help="Target kind: sigma | splunk."
+    ),
+    splunk_name: str | None = typer.Option(
+        None, "--name", help="Splunk savedsearch stanza name (required for --target splunk)."
+    ),
+    splunk_app: str = typer.Option(
+        "search", "--app", help="Splunk app context (default: search)."
+    ),
 ) -> None:
-    """Scaffold a DDR from a Sigma rule (content-hashes the rule, prefills target)."""
-    if not sigma_rule.exists():
-        typer.echo(f"ERROR: {sigma_rule} not found", err=True)
+    """Scaffold a DDR from a Sigma rule or as a Splunk-native record."""
+    if target_kind not in ("sigma", "splunk"):
+        typer.echo("ERROR: --target must be sigma | splunk", err=True)
         raise typer.Exit(1)
 
     if decision_kind not in ("suppress", "accept-risk", "deprecate"):
         typer.echo("ERROR: --decision must be suppress | accept-risk | deprecate", err=True)
+        raise typer.Exit(1)
+
+    if target_kind == "splunk":
+        _cmd_new_splunk(
+            output=output,
+            decision_kind=decision_kind,
+            splunk_name=splunk_name,
+            splunk_app=splunk_app,
+        )
+        return
+
+    # --- sigma target (existing path) ---
+    if sigma_rule is None:
+        typer.echo("ERROR: a Sigma rule path is required for --target sigma", err=True)
+        raise typer.Exit(1)
+
+    if not sigma_rule.exists():
+        typer.echo(f"ERROR: {sigma_rule} not found", err=True)
         raise typer.Exit(1)
 
     loader = _safe_yaml()
@@ -105,7 +134,7 @@ def cmd_new(
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.1",
+            "ddr_version": "0.3",
             "id": str(uuid4()),
             "title": f"Suppress: {rule_title}" if decision_kind == "suppress" else rule_title,
             "description": "",
@@ -118,7 +147,7 @@ def cmd_new(
                     "path_or_url": str(sigma_rule.resolve()),
                 },
             },
-            "decision": _build_decision_scaffold(decision_kind, dict(ls)),
+            "decision": _build_sigma_decision_scaffold(decision_kind, dict(ls)),
             "lifecycle": {
                 "status": "draft",
                 "created_on": _now_utc(),
@@ -130,6 +159,51 @@ def cmd_new(
         }
     )
 
+    _write_scaffold(scaffold, output)
+
+
+def _cmd_new_splunk(
+    output: Path | None,
+    decision_kind: str,
+    splunk_name: str | None,
+    splunk_app: str,
+) -> None:
+    if not splunk_name:
+        typer.echo(
+            "ERROR: --name <stanza> is required for --target splunk",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    scaffold = _strip_none(
+        {
+            "ddr_version": "0.3",
+            "id": str(uuid4()),
+            "title": f"TODO: title for {splunk_name}",
+            "description": "TODO: describe this detection and why tuning is needed.",
+            "target": {
+                "kind": "splunk",
+                "query_ref": {
+                    "name": splunk_name,
+                    "app": splunk_app,
+                },
+            },
+            "decision": _build_splunk_decision_scaffold(decision_kind),
+            "lifecycle": {
+                "status": "draft",
+                "created_on": _now_utc(),
+            },
+            "provenance": {
+                "author": "",
+                "ticket_refs": [],
+            },
+        }
+    )
+
+    _write_scaffold(scaffold, output)
+
+
+def _write_scaffold(scaffold: dict, output: Path | None) -> None:
     writer = _writer_yaml()
     buf = io.StringIO()
     writer.dump(scaffold, buf)
@@ -142,12 +216,13 @@ def cmd_new(
         typer.echo(result, nl=False)
 
 
-def _build_decision_scaffold(kind: str, logsource: dict) -> dict:
+def _build_sigma_decision_scaffold(kind: str, logsource: dict) -> dict:
     if kind == "suppress":
         return {
             "kind": "suppress",
             "rationale": "TODO: explain why this is an acceptable false positive",
             "tuning": {
+                "kind": "sigma",
                 "logsource": logsource or {"category": "TODO", "product": "TODO"},
                 "selections": {"known_fp": {"FieldName|contains": ["benign_value"]}},
                 "condition": "not known_fp",
@@ -162,6 +237,33 @@ def _build_decision_scaffold(kind: str, logsource: dict) -> dict:
         "kind": "deprecate",
         "rationale": "TODO: explain why this rule is being deprecated",
     }
+
+
+def _build_splunk_decision_scaffold(kind: str) -> dict:
+    if kind == "suppress":
+        return {
+            "kind": "suppress",
+            "rationale": "TODO: explain why this is an acceptable false positive",
+            "tuning": {
+                "kind": "splunk",
+                "filter_title": "TODO: descriptive filter name",
+                "splunk_filter": "TODO: raw SPL filter clause (e.g. user=svc_* OR src_ip=10.0.0.0/8)",
+            },
+        }
+    if kind == "accept-risk":
+        return {
+            "kind": "accept-risk",
+            "rationale": "TODO: explain why you are accepting this risk",
+        }
+    return {
+        "kind": "deprecate",
+        "rationale": "TODO: explain why this rule is being deprecated",
+    }
+
+
+# Back-compat: keep old helper name so existing callers don't break
+def _build_decision_scaffold(kind: str, logsource: dict) -> dict:
+    return _build_sigma_decision_scaffold(kind, logsource)
 
 
 @app.command("validate")
@@ -313,7 +415,7 @@ def cmd_export_sigma_filter(
     path: Path = typer.Argument(..., help="DDR file with decision.kind == 'suppress'."),
     output: Path | None = typer.Option(None, "--output", "-o", help="Write filter YAML here (default: stdout)."),
 ) -> None:
-    """Emit a Sigma Filter YAML from a suppress DDR record."""
+    """Emit a Sigma Filter YAML from a suppress DDR record (Sigma targets only)."""
     if not path.exists():
         typer.echo(f"ERROR: {path} not found", err=True)
         raise typer.Exit(1)
@@ -322,6 +424,14 @@ def cmd_export_sigma_filter(
         record = _load_record(path)
     except (ValidationError, ValueError) as exc:
         typer.echo(f"ERROR: {path}: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if not isinstance(record.target, SigmaTarget):
+        typer.echo(
+            f"ERROR: export-sigma-filter requires target.kind='sigma', got '{record.target.kind}'. "
+            "Use 'ddr export-splunk' for Splunk-native targets.",
+            err=True,
+        )
         raise typer.Exit(1)
 
     if not isinstance(record.decision, SuppressDecision):
@@ -348,9 +458,12 @@ def cmd_export_splunk(
     path: Path = typer.Argument(..., help="DDR file with decision.kind == 'suppress'."),
     output: Path | None = typer.Option(None, "--output", "-o", help="Write SPL here (default: stdout)."),
     fmt: str = typer.Option("fragment", "--format", help="Output format: fragment | savedsearches."),
-    config: Path | None = typer.Option(None, "--config", help="Path to sigma-to-spl config YAML."),
+    config: Path | None = typer.Option(None, "--config", help="Path to sigma-to-spl config YAML (Sigma targets only)."),
 ) -> None:
-    """Emit a SPL NOT clause from a suppress DDR record (requires sigma-to-spl)."""
+    """Emit a SPL NOT clause from a suppress DDR record.
+
+    Sigma targets require sigma-to-spl. Splunk-native targets work standalone.
+    """
     if not path.exists():
         typer.echo(f"ERROR: {path} not found", err=True)
         raise typer.Exit(1)
@@ -371,6 +484,12 @@ def cmd_export_splunk(
             err=True,
         )
         raise typer.Exit(1)
+
+    if config is not None and record.target.kind == "splunk":
+        typer.echo(
+            "WARN: --config has no effect on Splunk-native targets (sigma-to-spl not used)",
+            err=True,
+        )
 
     try:
         from ddr.exporters.splunk import export_to_spl
@@ -407,6 +526,10 @@ def cmd_refresh_hash(
 
     if not isinstance(data, dict):
         typer.echo("ERROR: not a YAML mapping", err=True)
+        raise typer.Exit(1)
+
+    if data.get("target", {}).get("kind") == "splunk":
+        typer.echo("ERROR: refresh-hash only supports Sigma targets (target.kind=sigma)", err=True)
         raise typer.Exit(1)
 
     stored = data.get("target", {}).get("rule_ref", {}).get("path_or_url", "")

@@ -7,6 +7,32 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-06
+
+### Added
+- `target` discriminated union: `kind: "sigma"` (existing) | `kind: "splunk"` (new). Existing Sigma-targeted records unchanged.
+- New `SplunkTarget` model with `SplunkQueryRef` (stanza `name`, `app`, optional `query_hash`, optional `path_or_url`).
+- `tuning` inside `suppress` decisions is now a discriminated union: `kind: "sigma"` (existing `SigmaTuning`) | `kind: "splunk"` (new `SplunkTuning`).
+- New `SplunkTuning`: carries a raw SPL filter clause (`splunk_filter`). No Sigma selections required.
+- Cross-field validator on `DDRRecord`: `tuning.kind` must equal `target.kind` for suppress decisions.
+- `ddr new --target splunk --name <stanza>` — scaffolds a Splunk-native DDR with TODO placeholders. `--app` defaults to `"search"`.
+- `ddr export-splunk` branches on `target.kind`: Sigma targets use the sigma-to-spl lowering path (unchanged); Splunk-native targets emit `splunk_filter` wrapped in `NOT (...)` without sigma-to-spl.
+- `ddr export-sigma-filter` now exits 1 with a clear error when `target.kind == "splunk"`.
+- `ddr refresh-hash` now exits 1 with a clear error when `target.kind == "splunk"`.
+- Example 06 (`examples/06-splunk-native-savedsearch/`) — noisy Splunk savedsearch with SPL FP filter, no Sigma rule.
+- `spec/ddr-v0.3.schema.json` — regenerated from Pydantic models.
+- `spec/ddr-v0.3.md` — prose spec update covering native targets and cross-field validator.
+- 28 new tests covering new models, discriminated unions, cross-field validator, native export, CLI commands, back-compat.
+
+### Changed
+- `Tuning` is now an alias for `SigmaTuning`. Existing imports unaffected.
+- `ddr_version` pattern updated to `^0\.[123]$`; v0.1 and v0.2 records remain valid.
+- v0.1/v0.2 `tuning` blocks without a `kind` field default to `kind: "sigma"` on load.
+
+### Notes
+- Splunk-native targets are an explicit escape hatch — use them when the detection cannot be expressed in Sigma. Sigma remains the preferred source of truth.
+- `ddr export-splunk` on a Splunk-native record works with sigma-to-spl **not** installed.
+
 ## [0.2.0] — 2026-05-06
 
 ### Added
