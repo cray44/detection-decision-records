@@ -17,7 +17,7 @@ from ruamel.yaml import YAML
 
 from ddr._internal.hash_utils import compute_content_hash
 from ddr.exporters.sigma_filter import export_to_yaml
-from ddr.models.record import DDRRecord, LifecycleStatus, SigmaTarget, SuppressDecision
+from ddr.models.record import DDRRecord, LifecycleStatus, SigmaTarget, SplunkTarget, SuppressDecision
 
 app = typer.Typer(
     name="ddr",
@@ -76,7 +76,8 @@ def _now_utc() -> str:
 @app.command("new")
 def cmd_new(
     sigma_rule: Path | None = typer.Argument(
-        default=None, help="Path to the Sigma rule YAML (required for --target sigma)."
+        default=None,
+        help="Path to Sigma rule YAML (--target sigma) or savedsearches.conf (--target splunk).",
     ),
     output: Path | None = typer.Option(None, "--output", "-o", help="Write new DDR here (default: stdout)."),
     decision_kind: str = typer.Option(
@@ -86,13 +87,13 @@ def cmd_new(
         "sigma", "--target", "-t", help="Target kind: sigma | splunk."
     ),
     splunk_name: str | None = typer.Option(
-        None, "--name", help="Splunk savedsearch stanza name (required for --target splunk)."
+        None, "--name", help="Splunk savedsearch stanza name (--target splunk)."
     ),
     splunk_app: str = typer.Option(
-        "search", "--app", help="Splunk app context (default: search)."
+        "search", "--app", help="Splunk app context (default: search; overridden by path inference)."
     ),
 ) -> None:
-    """Scaffold a DDR from a Sigma rule or as a Splunk-native record."""
+    """Scaffold a DDR from a Sigma rule or savedsearches.conf."""
     if target_kind not in ("sigma", "splunk"):
         typer.echo("ERROR: --target must be sigma | splunk", err=True)
         raise typer.Exit(1)
@@ -102,15 +103,24 @@ def cmd_new(
         raise typer.Exit(1)
 
     if target_kind == "splunk":
-        _cmd_new_splunk(
-            output=output,
-            decision_kind=decision_kind,
-            splunk_name=splunk_name,
-            splunk_app=splunk_app,
-        )
+        if sigma_rule is not None:
+            _cmd_new_splunk_from_conf(
+                conf_path=sigma_rule,
+                output=output,
+                decision_kind=decision_kind,
+                splunk_name=splunk_name,
+                splunk_app=splunk_app,
+            )
+        else:
+            _cmd_new_splunk(
+                output=output,
+                decision_kind=decision_kind,
+                splunk_name=splunk_name,
+                splunk_app=splunk_app,
+            )
         return
 
-    # --- sigma target (existing path) ---
+    # --- sigma target ---
     if sigma_rule is None:
         typer.echo("ERROR: a Sigma rule path is required for --target sigma", err=True)
         raise typer.Exit(1)
@@ -134,7 +144,7 @@ def cmd_new(
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.3",
+            "ddr_version": "0.4",
             "id": str(uuid4()),
             "title": f"Suppress: {rule_title}" if decision_kind == "suppress" else rule_title,
             "description": "",
@@ -168,6 +178,7 @@ def _cmd_new_splunk(
     splunk_name: str | None,
     splunk_app: str,
 ) -> None:
+    """Minimal scaffold without conf parsing (v0.3 behavior — no query_hash)."""
     if not splunk_name:
         typer.echo(
             "ERROR: --name <stanza> is required for --target splunk",
@@ -177,7 +188,7 @@ def _cmd_new_splunk(
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.3",
+            "ddr_version": "0.4",
             "id": str(uuid4()),
             "title": f"TODO: title for {splunk_name}",
             "description": "TODO: describe this detection and why tuning is needed.",
@@ -186,6 +197,108 @@ def _cmd_new_splunk(
                 "query_ref": {
                     "name": splunk_name,
                     "app": splunk_app,
+                },
+            },
+            "decision": _build_splunk_decision_scaffold(decision_kind),
+            "lifecycle": {
+                "status": "draft",
+                "created_on": _now_utc(),
+            },
+            "provenance": {
+                "author": "",
+                "ticket_refs": [],
+            },
+        }
+    )
+
+    _write_scaffold(scaffold, output)
+
+
+def _cmd_new_splunk_from_conf(
+    conf_path: Path,
+    output: Path | None,
+    decision_kind: str,
+    splunk_name: str | None,
+    splunk_app: str,
+) -> None:
+    """Scaffold from a real savedsearches.conf — computes query_hash, infers app."""
+    from ddr._internal.splunk_conf import (
+        compute_query_hash,
+        extract_stanza,
+        infer_app_from_path,
+        parse_savedsearches_conf,
+    )
+
+    if not conf_path.exists():
+        typer.echo(f"ERROR: {conf_path} not found", err=True)
+        raise typer.Exit(1)
+
+    try:
+        conf = parse_savedsearches_conf(conf_path)
+    except Exception as exc:
+        typer.echo(f"ERROR: failed to parse {conf_path}: {exc}", err=True)
+        raise typer.Exit(1)
+
+    if not conf:
+        typer.echo(f"ERROR: no stanzas found in {conf_path}", err=True)
+        raise typer.Exit(1)
+
+    # Stanza selection
+    if splunk_name:
+        try:
+            stanza = extract_stanza(conf, splunk_name)
+        except KeyError as exc:
+            typer.echo(f"ERROR: {exc}", err=True)
+            raise typer.Exit(1)
+        name = splunk_name
+    else:
+        stanzas = list(conf.keys())
+        if len(stanzas) == 1:
+            name = stanzas[0]
+            stanza = conf[name]
+        else:
+            typer.echo(
+                f"ERROR: {conf_path} contains {len(stanzas)} stanzas — use --name to select one:",
+                err=True,
+            )
+            for s in stanzas:
+                typer.echo(f"  {s!r}", err=True)
+            raise typer.Exit(1)
+
+    if stanza.get("disabled") in ("1", "true"):
+        typer.echo(f"WARN: stanza {name!r} has disabled=1 — savedsearch is not scheduled", err=True)
+
+    search = stanza.get("search", "").strip()
+    if not search:
+        typer.echo(f"ERROR: stanza {name!r} has no 'search' key or empty value", err=True)
+        raise typer.Exit(1)
+
+    try:
+        query_hash = compute_query_hash(search)
+    except ValueError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(1)
+
+    # App inference: prefer inferred app over the "search" default; --app always wins
+    inferred_app = infer_app_from_path(conf_path)
+    if splunk_app == "search" and inferred_app:
+        app = inferred_app
+    else:
+        app = splunk_app
+
+    scaffold = _strip_none(
+        {
+            "ddr_version": "0.4",
+            "id": str(uuid4()),
+            "title": f"TODO: title for {name}",
+            "description": "TODO: describe this detection and why tuning is needed.",
+            "target": {
+                "kind": "splunk",
+                "query_ref": {
+                    "name": name,
+                    "app": app,
+                    "query_hash": query_hash,
+                    "path_or_url": str(conf_path),
                 },
             },
             "decision": _build_splunk_decision_scaffold(decision_kind),
@@ -298,6 +411,7 @@ def cmd_validate(
 
             if strict:
                 _strict_lint(fp, record)
+                _strict_splunk_drift_check(fp, record)
 
         except ValidationError as exc:
             failed += 1
@@ -330,6 +444,44 @@ def _strict_lint(fp: Path, record: DDRRecord) -> None:
                 err=True,
             )
             break
+
+
+def _strict_splunk_drift_check(fp: Path, record: DDRRecord) -> None:
+    """Warn if query_hash in a Splunk-target DDR doesn't match the local conf."""
+    if not isinstance(record.target, SplunkTarget):
+        return
+    qref = record.target.query_ref
+    if not qref.query_hash or not qref.path_or_url:
+        return
+    if qref.path_or_url.startswith(("http://", "https://")):
+        typer.echo(
+            f"  NOTE  {fp}: query_hash drift cannot be verified for remote path_or_url",
+            err=True,
+        )
+        return
+
+    conf_path = Path(qref.path_or_url)
+    if not conf_path.is_absolute():
+        conf_path = fp.parent / conf_path
+    if not conf_path.exists():
+        return
+
+    try:
+        from ddr._internal.splunk_conf import compute_query_hash, extract_stanza, parse_savedsearches_conf
+
+        conf = parse_savedsearches_conf(conf_path)
+        stanza = extract_stanza(conf, qref.name)
+        search = stanza.get("search", "").strip()
+        if not search:
+            return
+        current_hash = compute_query_hash(search)
+        if current_hash != qref.query_hash:
+            typer.echo(
+                f"  WARN  {fp}: query_hash drift detected — run 'ddr refresh-hash {fp}' to update",
+                err=True,
+            )
+    except Exception:
+        pass
 
 
 @app.command("expire-check")
@@ -511,9 +663,10 @@ def cmd_export_splunk(
 @app.command("refresh-hash")
 def cmd_refresh_hash(
     path: Path = typer.Argument(..., help="DDR file to update."),
-    rule: Path | None = typer.Option(None, "--rule", "-r", help="Override rule file path."),
+    rule: Path | None = typer.Option(None, "--rule", "-r", help="Override Sigma rule file path."),
+    conf: Path | None = typer.Option(None, "--conf", help="Override savedsearches.conf path (Splunk targets)."),
 ) -> None:
-    """Recompute target.rule_ref.content_hash after a confirmed cosmetic-only rule change."""
+    """Recompute content/query hash after a confirmed cosmetic-only change."""
     if not path.exists():
         typer.echo(f"ERROR: {path} not found", err=True)
         raise typer.Exit(1)
@@ -528,10 +681,13 @@ def cmd_refresh_hash(
         typer.echo("ERROR: not a YAML mapping", err=True)
         raise typer.Exit(1)
 
-    if data.get("target", {}).get("kind") == "splunk":
-        typer.echo("ERROR: refresh-hash only supports Sigma targets (target.kind=sigma)", err=True)
-        raise typer.Exit(1)
+    target_kind = data.get("target", {}).get("kind", "sigma")
 
+    if target_kind == "splunk":
+        _cmd_refresh_hash_splunk(path, data, writer, conf)
+        return
+
+    # --- sigma path ---
     stored = data.get("target", {}).get("rule_ref", {}).get("path_or_url", "")
     rule_path = rule or (Path(stored) if stored else None)
 
@@ -556,6 +712,80 @@ def cmd_refresh_hash(
 
     typer.echo(f"Updated {path}")
     typer.echo(f"  old: {old_hash}")
+    typer.echo(f"  new: {new_hash}")
+
+
+def _cmd_refresh_hash_splunk(
+    ddr_path: Path,
+    data: dict,
+    writer: Any,
+    conf_override: Path | None,
+) -> None:
+    from ddr._internal.splunk_conf import compute_query_hash, extract_stanza, parse_savedsearches_conf
+
+    query_ref = data.get("target", {}).get("query_ref", {})
+    stanza_name = query_ref.get("name", "")
+    stored_path = query_ref.get("path_or_url", "")
+
+    if not stanza_name:
+        typer.echo("ERROR: target.query_ref.name is missing", err=True)
+        raise typer.Exit(1)
+
+    if conf_override:
+        conf_path = conf_override
+    elif stored_path:
+        if stored_path.startswith(("http://", "https://")):
+            typer.echo(
+                "NOTE: path_or_url is a remote URL — use --conf to provide a local savedsearches.conf",
+                err=True,
+            )
+            raise typer.Exit(1)
+        conf_path = Path(stored_path)
+        if not conf_path.is_absolute():
+            conf_path = ddr_path.parent / conf_path
+    else:
+        typer.echo(
+            "ERROR: no conf path available. Set target.query_ref.path_or_url or use --conf.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if not conf_path.exists():
+        typer.echo(
+            f"ERROR: conf file not found at '{conf_path}'. Use --conf to specify the path.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    try:
+        conf = parse_savedsearches_conf(conf_path)
+        stanza = extract_stanza(conf, stanza_name)
+    except KeyError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(1)
+    except Exception as exc:
+        typer.echo(f"ERROR: failed to parse {conf_path}: {exc}", err=True)
+        raise typer.Exit(1)
+
+    search = stanza.get("search", "").strip()
+    if not search:
+        typer.echo(f"ERROR: stanza {stanza_name!r} has no 'search' key or empty value", err=True)
+        raise typer.Exit(1)
+
+    new_hash = compute_query_hash(search)
+    old_hash = query_ref.get("query_hash", "")
+
+    if old_hash == new_hash:
+        typer.echo(f"Hash unchanged: {new_hash}")
+        return
+
+    data["target"]["query_ref"]["query_hash"] = new_hash
+
+    with open(ddr_path, "w", encoding="utf-8") as fh:
+        writer.dump(data, fh)
+
+    typer.echo(f"Updated {ddr_path}")
+    typer.echo(f"  old: {old_hash or '(none)'}")
     typer.echo(f"  new: {new_hash}")
 
 

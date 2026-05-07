@@ -1,5 +1,23 @@
 # DDR Spec Changelog
 
+## [0.4.0] — 2026-05-06
+
+Additive schema change. All v0.1, v0.2, and v0.3 records validate unchanged.
+
+### Added
+- `ddr_version` pattern updated to `^0\.[1234]$`; records with `"0.1"`, `"0.2"`, `"0.3"` remain valid.
+- **SPL canonicalization algorithm v1** (`spec/ddr-v0.4.md §6`): strip BOM → CRLF→LF → join
+  backslash-continuations → drop comment lines → collapse whitespace → trim → SHA-256 → `sha256:` prefix.
+  No keyword lowercasing (preserves field-value semantics).
+- **savedsearches.conf parsing spec** (`spec/ddr-v0.4.md §7`): formalizes dialect quirks — BOM, CRLF,
+  continuation, `[default]` skip, duplicate-key last-wins, app inference from path.
+- **query_hash drift check** (`spec/ddr-v0.4.md §8`): drift is a warning, not a failure; skipped for
+  remote `path_or_url`.
+
+### Back-compat notes
+- `query_hash` was already an optional field on `SplunkQueryRef` in v0.3. v0.4 formalizes how it is
+  computed and refreshed — no structural schema change.
+
 ## [0.3.0] — 2026-05-06
 
 Additive schema change. All v0.1 and v0.2 records validate unchanged.

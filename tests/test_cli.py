@@ -331,3 +331,233 @@ def test_validate_v01_fixture_under_v03(valid_fixtures_dir):
 def test_validate_v02_fixture_under_v03(valid_fixtures_dir):
     result = runner.invoke(app, ["validate", str(valid_fixtures_dir / "v0.2-record.yml")])
     assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# v0.4: ddr new --target splunk <conf_path>
+# ---------------------------------------------------------------------------
+
+_SIMPLE_CONF = """\
+[My Noisy Detection]
+search = index=main sourcetype=syslog error
+dispatch.earliest_time = -1h
+"""
+
+_MULTI_CONF = """\
+[Alpha Detection]
+search = index=main event=alpha
+
+[Beta Detection]
+search = index=main event=beta
+"""
+
+
+def test_new_splunk_from_conf_with_name(tmp_path):
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text(_SIMPLE_CONF, encoding="utf-8")
+    result = runner.invoke(app, ["new", "--target", "splunk", str(conf), "--name", "My Noisy Detection"])
+    assert result.exit_code == 0
+    assert "sha256:" in result.output
+    assert "My Noisy Detection" in result.output
+    assert "query_hash" in result.output
+    assert "path_or_url" in result.output
+
+
+def test_new_splunk_from_conf_single_stanza_no_name(tmp_path):
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text(_SIMPLE_CONF, encoding="utf-8")
+    result = runner.invoke(app, ["new", "--target", "splunk", str(conf)])
+    assert result.exit_code == 0
+    assert "My Noisy Detection" in result.output
+    assert "sha256:" in result.output
+
+
+def test_new_splunk_from_conf_multi_stanza_no_name_fails(tmp_path):
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text(_MULTI_CONF, encoding="utf-8")
+    result = runner.invoke(app, ["new", "--target", "splunk", str(conf)])
+    assert result.exit_code == 1
+    assert "Alpha Detection" in result.output or "Beta Detection" in result.output
+
+
+def test_new_splunk_from_conf_name_not_found_fails(tmp_path):
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text(_SIMPLE_CONF, encoding="utf-8")
+    result = runner.invoke(app, ["new", "--target", "splunk", str(conf), "--name", "Nonexistent"])
+    assert result.exit_code == 1
+    assert "not found" in result.output.lower()
+
+
+def test_new_splunk_name_only_minimal_scaffold():
+    """--name without conf path uses v0.3-style minimal scaffold."""
+    result = runner.invoke(app, ["new", "--target", "splunk", "--name", "My Detection"])
+    assert result.exit_code == 0
+    assert "My Detection" in result.output
+    assert "query_hash" not in result.output
+
+
+def test_new_splunk_from_conf_disabled_warns(tmp_path):
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text("[Disabled]\nsearch = index=main\ndisabled = 1\n", encoding="utf-8")
+    result = runner.invoke(app, ["new", "--target", "splunk", str(conf)])
+    assert "WARN" in result.output
+    assert result.exit_code == 0
+
+
+def test_new_splunk_from_conf_app_inference(tmp_path):
+    app_dir = tmp_path / "etc" / "apps" / "MyTA" / "local"
+    app_dir.mkdir(parents=True)
+    conf = app_dir / "savedsearches.conf"
+    conf.write_text(_SIMPLE_CONF, encoding="utf-8")
+    result = runner.invoke(app, ["new", "--target", "splunk", str(conf)])
+    assert result.exit_code == 0
+    assert "MyTA" in result.output
+
+
+def test_new_splunk_from_conf_app_override(tmp_path):
+    app_dir = tmp_path / "etc" / "apps" / "MyTA" / "local"
+    app_dir.mkdir(parents=True)
+    conf = app_dir / "savedsearches.conf"
+    conf.write_text(_SIMPLE_CONF, encoding="utf-8")
+    result = runner.invoke(app, ["new", "--target", "splunk", str(conf), "--app", "CustomApp"])
+    assert result.exit_code == 0
+    assert "CustomApp" in result.output
+
+
+# ---------------------------------------------------------------------------
+# v0.4: ddr refresh-hash (Splunk branch)
+# ---------------------------------------------------------------------------
+
+_SPLUNK_DDR_TEMPLATE = """\
+ddr_version: "0.4"
+id: 7c3e9a2f-b841-4d12-9f6e-1a5c8d047b3e
+title: Suppress test
+description: test
+target:
+  kind: splunk
+  query_ref:
+    name: My Noisy Detection
+    app: search
+    query_hash: sha256:{old_hash}
+    path_or_url: "{conf_path}"
+decision:
+  kind: suppress
+  rationale: test
+  tuning:
+    kind: splunk
+    splunk_filter: "user=svc_test"
+lifecycle:
+  status: active
+  created_on: "2026-01-01T00:00:00Z"
+  activated_on: "2026-01-02T00:00:00Z"
+  expires_on: "2027-01-01T00:00:00Z"
+provenance:
+  author: test@example.com
+"""
+
+
+def _make_splunk_ddr(tmp_path: Path, conf_path: Path, old_hash: str = "sha256:" + "0" * 64) -> Path:
+    ddr = tmp_path / "ddr.yml"
+    ddr.write_text(
+        _SPLUNK_DDR_TEMPLATE.format(
+            old_hash=old_hash[len("sha256:"):],
+            conf_path=str(conf_path).replace("\\", "/"),
+        ),
+        encoding="utf-8",
+    )
+    return ddr
+
+
+def test_refresh_hash_splunk_updates(tmp_path):
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text(_SIMPLE_CONF, encoding="utf-8")
+    ddr = _make_splunk_ddr(tmp_path, conf)
+    result = runner.invoke(app, ["refresh-hash", str(ddr)])
+    assert result.exit_code == 0
+    assert "sha256:" in result.output
+    assert "old:" in result.output or "new:" in result.output
+
+
+def test_refresh_hash_splunk_unchanged(tmp_path):
+    from ddr._internal.splunk_conf import compute_query_hash, extract_stanza, parse_savedsearches_conf
+
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text(_SIMPLE_CONF, encoding="utf-8")
+    parsed = parse_savedsearches_conf(conf)
+    stanza = extract_stanza(parsed, "My Noisy Detection")
+    current_hash = compute_query_hash(stanza["search"])
+
+    ddr = _make_splunk_ddr(tmp_path, conf, old_hash=current_hash)
+    result = runner.invoke(app, ["refresh-hash", str(ddr)])
+    assert result.exit_code == 0
+    assert "unchanged" in result.output.lower()
+
+
+def test_refresh_hash_splunk_conf_override(tmp_path):
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text(_SIMPLE_CONF, encoding="utf-8")
+
+    other_conf = tmp_path / "other.conf"
+    other_conf.write_text("[My Noisy Detection]\nsearch = index=main sourcetype=other\n", encoding="utf-8")
+
+    ddr = _make_splunk_ddr(tmp_path, conf)
+    result = runner.invoke(app, ["refresh-hash", str(ddr), "--conf", str(other_conf)])
+    assert result.exit_code == 0
+
+
+def test_refresh_hash_splunk_http_url_no_conf(tmp_path):
+    ddr = tmp_path / "ddr.yml"
+    ddr.write_text(
+        _SPLUNK_DDR_TEMPLATE.format(
+            old_hash="0" * 64,
+            conf_path="https://splunk.example.com/savedsearches.conf",
+        ),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["refresh-hash", str(ddr)])
+    assert result.exit_code == 1
+    assert "remote" in result.output.lower() or "--conf" in result.output
+
+
+# ---------------------------------------------------------------------------
+# v0.4: ddr validate --strict (query_hash drift)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_strict_splunk_drift_warns(tmp_path):
+    from ddr._internal.splunk_conf import compute_query_hash
+
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text(_SIMPLE_CONF, encoding="utf-8")
+
+    # Write a DDR with a stale hash
+    stale_hash = "sha256:" + "a" * 64
+    ddr = _make_splunk_ddr(tmp_path, conf, old_hash=stale_hash)
+
+    result = runner.invoke(app, ["validate", "--strict", str(ddr)])
+    assert "WARN" in result.output or "drift" in result.output.lower()
+
+
+def test_validate_strict_splunk_no_drift_no_warn(tmp_path):
+    from ddr._internal.splunk_conf import compute_query_hash, extract_stanza, parse_savedsearches_conf
+
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text(_SIMPLE_CONF, encoding="utf-8")
+    parsed = parse_savedsearches_conf(conf)
+    stanza = extract_stanza(parsed, "My Noisy Detection")
+    current_hash = compute_query_hash(stanza["search"])
+
+    ddr = _make_splunk_ddr(tmp_path, conf, old_hash=current_hash)
+    result = runner.invoke(app, ["validate", "--strict", str(ddr)])
+    assert result.exit_code == 0
+    assert "drift" not in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# v0.4: back-compat — v0.3 records still validate
+# ---------------------------------------------------------------------------
+
+
+def test_validate_v03_fixture_under_v04(valid_fixtures_dir):
+    result = runner.invoke(app, ["validate", str(valid_fixtures_dir / "v0.3-record.yml")])
+    assert result.exit_code == 0

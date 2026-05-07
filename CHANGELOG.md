@@ -7,6 +7,35 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-06
+
+### Added
+- New module `ddr._internal.splunk_conf`: pure-Python `savedsearches.conf` parser + SPL canonicalizer + hash utility. Zero new runtime dependencies.
+  - `parse_savedsearches_conf(path)` — handles BOM, CRLF, backslash-continuation, `#` comments, `[default]` skip, last-wins duplicate keys.
+  - `extract_stanza(conf, name)` — stanza lookup with clear error listing available names.
+  - `infer_app_from_path(path)` — infers Splunk app from `.../etc/apps/<app>/(local|default)/savedsearches.conf`.
+  - `canonicalize_spl(query)` — canonicalization algorithm v1 (spec §6): no keyword lowercasing.
+  - `compute_query_hash(query)` — `sha256:<hex>` of canonicalized SPL.
+- `ddr new --target splunk <conf_path> [--name <stanza>]` — parses conf, extracts stanza, computes `query_hash`, fills `path_or_url`, infers `app`. If conf has a single stanza, `--name` is optional.
+- `ddr new --target splunk <conf_path>` with multiple stanzas and no `--name` → exit 1, lists available stanzas.
+- `ddr refresh-hash` — Splunk branch: re-parses `path_or_url` (or `--conf` override), recomputes `query_hash`, prints old/new (parallel to Sigma `content_hash` behavior).
+- `ddr refresh-hash --conf <path>` — new flag to override the conf path for Splunk targets.
+- `ddr validate --strict` — new check: warns on `query_hash` drift when `target.kind=splunk` and local conf is reachable. Skipped (note printed) for `http(s)://` URLs.
+- Example 07 (`examples/07-splunk-multi-stanza-app/`) — Splunk_TA_windows multi-stanza conf demonstrating stanza selection.
+- `spec/ddr-v0.4.md` — formalizes SPL canonicalization algorithm v1, conf parsing spec, drift check semantics.
+- `spec/ddr-v0.4.schema.json` — regenerated from Pydantic models.
+- 33 new tests (25 parser/canonicalizer unit tests + 8 CLI integration tests).
+
+### Changed
+- `ddr new` scaffolds now emit `ddr_version: "0.4"`.
+- `ddr refresh-hash` no longer exits 1 for Splunk targets — it branches to the Splunk path instead.
+- Example 06 `ddr.yml` updated: `ddr_version: "0.4"`, `query_hash` populated with real SHA-256.
+- `ddr_version` pattern updated to `^0\.[1234]$`; v0.1/v0.2/v0.3 records remain valid.
+
+### Notes
+- `ddr new --target splunk --name <stanza>` (no conf path) still works — produces a minimal scaffold without `query_hash` (v0.3 behavior preserved).
+- `query_hash` is intentionally whitespace-stable: cosmetic SPL reformatting does not change the hash.
+
 ## [0.3.0] — 2026-05-06
 
 ### Added

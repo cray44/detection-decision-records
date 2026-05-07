@@ -274,7 +274,7 @@ class DDRRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ddr_version: Annotated[str, Field(pattern=r"^0\.[123]$")]
+    ddr_version: Annotated[str, Field(pattern=r"^0\.[1234]$")]
     id: UUID
     target: Target
     title: str
