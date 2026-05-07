@@ -52,6 +52,7 @@ class EvidenceType(StrEnum):
     runbook = "runbook"
     dashboard = "dashboard"
     pcap = "pcap"
+    note = "note"
     other = "other"
 
 
