@@ -1,0 +1,61 @@
+ddr_version: "0.1"
+id: 550e8400-e29b-41d4-a716-446655440002
+title: "Suppress: Port scan from authorized Nessus scanner IPs"
+description: >
+  Authorized Nessus Professional scanner (10.10.5.20, 10.10.5.21) runs weekly
+  vulnerability scans from the security VLAN. Triggers port-scan rule with a
+  2,000+ alert/week FP rate. Scan schedule is change-managed.
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: 2a68a9a2-5fc8-4bf2-b5b8-b76c0aedc2f4
+    content_hash: sha256:cda8f45d9542d570b19f6dd8f81dd657829dcb91c5275a3e1a1def7cd56eef21
+    source: internal
+    path_or_url: "rules/network/zeek/net_zeek_port_scan.yml"
+decision:
+  kind: suppress
+  rationale: >
+    Nessus scanner IPs are static (DHCP reservation, documented in CMDB-SEC-001)
+    and originate from the isolated scanner VLAN (10.10.5.0/28). This VLAN has
+    no lateral movement path to production systems. Any scan from outside this
+    VLAN should still alert. Suppression is IP-scoped and expires in 180 days
+    to force re-review when scanner infrastructure changes.
+  tuning:
+    filter_title: "FP Filter: Authorized Nessus scanner traffic"
+    filter_description: "Suppress port scan alerts from the two Nessus scanner IPs in the security VLAN."
+    logsource:
+      category: network_connection
+      product: zeek
+      service: conn
+    selections:
+      known_fp_nessus:
+        id.orig_h:
+          - 10.10.5.20
+          - 10.10.5.21
+    condition: not known_fp_nessus
+lifecycle:
+  status: active
+  created_on: "2025-09-15T08:00:00Z"
+  activated_on: "2025-09-16T09:00:00Z"
+  expires_on: "2026-09-16T09:00:00Z"
+  review_cadence_days: 180
+  last_reviewed_on: "2025-09-16T09:00:00Z"
+provenance:
+  author: charlie@corp.example.com
+  reviewers:
+    - alice@corp.example.com
+  ticket_refs:
+    - SEC-8812
+    - CHG-4499
+  evidence:
+    - type: ticket
+      ref: "CHG-4499"
+      note: "Change management ticket approving weekly Nessus scan schedule and source IPs."
+    - type: splunk_query
+      ref: "savedsearch://Network_PortScan_FP_Analysis"
+      note: "1-week Zeek conn.log query confirming 100% of port-scan alerts originate from 10.10.5.20-21."
+scope:
+  environments:
+    - production
+  data_sources:
+    - zeek/conn

@@ -1,0 +1,51 @@
+ddr_version: "0.1"
+id: 550e8400-e29b-41d4-a716-446655440004
+title: "Accept risk: AWS root account usage during quarterly break-glass exercise"
+description: >
+  AWS root account is used once per quarter for scheduled break-glass testing
+  per corporate DR policy POLICY-AWS-BG-001. The event cannot be suppressed via
+  Sigma Filter because the detection condition is field-exact and the FP is
+  indistinguishable from a real root compromise at the event level alone.
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: 8c7f8e9a-2b3c-4d5e-6f7a-8b9c0d1e2f3a
+    content_hash: sha256:90b82d4203c088954015f7b5c77c0839b2e8de1b1f26b32b72f11bda9934482f
+    source: sigmahq
+    path_or_url: "https://github.com/SigmaHQ/sigma/blob/main/rules/cloud/aws/aws_root_console_login.yml"
+decision:
+  kind: accept-risk
+  rationale: >
+    The FP is indistinguishable from a genuine root compromise at the CloudTrail
+    event field level — both produce userIdentity.type=Root. Suppression would
+    blind the detection entirely. The correct control is: (1) pre-notify SOC
+    48h before drill, (2) SOC correlates with the ticket reference during triage,
+    (3) ticket closes the alert. DR policy requires this test quarterly; next
+    review is triggered if policy changes or root login occurs outside drill window.
+lifecycle:
+  status: active
+  created_on: "2025-11-01T09:00:00Z"
+  activated_on: "2025-11-02T09:00:00Z"
+  expires_on: "2026-11-02T09:00:00Z"
+  review_cadence_days: 90
+  last_reviewed_on: "2025-11-02T09:00:00Z"
+provenance:
+  author: eve@corp.example.com
+  reviewers:
+    - frank@corp.example.com
+  approved_by: frank@corp.example.com
+  ticket_refs:
+    - SEC-0042
+    - POLICY-AWS-BG-001
+  evidence:
+    - type: runbook
+      ref: "https://wiki.corp.example.com/RUNBOOK-AWS-BG-01"
+      note: "Break-glass runbook detailing root account test procedure and SOC notification SOP."
+    - type: ticket
+      ref: "SEC-0042"
+      note: "Risk acceptance sign-off from CISO for quarterly break-glass root access."
+scope:
+  environments:
+    - production
+  data_sources:
+    - aws/cloudtrail

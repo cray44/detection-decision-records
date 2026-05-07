@@ -1,0 +1,30 @@
+ddr_version: "0.1"
+id: a8098c1a-f86e-11da-bd1a-00112444be1e
+title: "Accept risk: AWS root account usage during quarterly break-glass drill"
+description: "Root account used quarterly for infrastructure break-glass test. Cannot suppress."
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: 4b3b64c9-7b61-4f9d-b5eb-96ec7b4e1234
+    content_hash: sha256:1111111111111111111111111111111111111111111111111111111111111111
+    source: sigmahq
+    path_or_url: "https://github.com/SigmaHQ/sigma/blob/main/rules/cloud/aws/aws_root_account_usage.yml"
+decision:
+  kind: accept-risk
+  rationale: "Root usage is intentional during quarterly break-glass drill. SOC is notified in advance. Risk accepted and documented in runbook RUNBOOK-AWS-42."
+lifecycle:
+  status: active
+  created_on: "2025-03-01T10:00:00Z"
+  activated_on: "2025-03-02T08:00:00Z"
+  expires_on: "2025-09-01T10:00:00Z"
+  review_cadence_days: 90
+  last_reviewed_on: "2025-03-02T08:00:00Z"
+provenance:
+  author: charlie@example.com
+  approved_by: dave@example.com
+  ticket_refs:
+    - SEC-4567
+  evidence:
+    - type: runbook
+      ref: "https://wiki.example.com/RUNBOOK-AWS-42"
+      note: "Break-glass procedure doc covering root account use cases and notification process."

@@ -1,0 +1,25 @@
+ddr_version: "0.3"
+id: 9d1f7a3c-e208-4b55-8c91-2f6d0b4e7a12
+title: "Suppress: Excessive Failed Logins — v0.3 back-compat fixture"
+description: "v0.3 back-compat fixture — Splunk-native target with optional query_hash."
+target:
+  kind: splunk
+  query_ref:
+    name: Excessive Failed Logins From Single Source
+    app: DA-ESS-AccessProtection
+    query_hash: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    path_or_url: "examples/06-splunk-native-savedsearch/savedsearch.conf"
+decision:
+  kind: suppress
+  rationale: "Authorized vuln scanner generating expected failed login events."
+  tuning:
+    kind: splunk
+    filter_title: "FP Filter: vuln scanner VLAN"
+    splunk_filter: "src_ip=\"10.20.30.0/24\""
+lifecycle:
+  status: active
+  created_on: "2026-03-10T11:00:00Z"
+  activated_on: "2026-03-11T09:00:00Z"
+  expires_on: "2027-03-10T00:00:00Z"
+provenance:
+  author: cray44@example.com

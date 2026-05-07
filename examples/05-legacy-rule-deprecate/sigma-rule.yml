@@ -1,0 +1,25 @@
+title: Suspicious WMI Event Subscription (Legacy)
+id: 0f06a3a5-6a09-413f-8743-e6cf35561297
+status: deprecated
+description: |
+  Detects WMI event subscription creation which may indicate persistence.
+  DEPRECATED: use rule id c9e4d7f8-5678-4bcd-9012-000000000099 instead,
+  which includes allowlisting for known monitoring agents.
+references:
+  - https://attack.mitre.org/techniques/T1546/003/
+author: Florian Roth (Nextron Systems)
+date: 2019-01-16
+modified: 2024-12-01
+tags:
+  - attack.persistence
+  - attack.t1546.003
+logsource:
+  product: windows
+  service: sysmon
+detection:
+  selection:
+    EventID: 19
+  condition: selection
+falsepositives:
+  - Legitimate WMI-based monitoring tools (SolarWinds, SCOM, etc.)
+level: medium

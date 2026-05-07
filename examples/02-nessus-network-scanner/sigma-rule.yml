@@ -1,0 +1,31 @@
+title: Network Port Scan Detected
+id: 2a68a9a2-5fc8-4bf2-b5b8-b76c0aedc2f4
+status: test
+description: Detects port scanning activity from internal hosts via Zeek conn.log.
+references:
+  - https://attack.mitre.org/techniques/T1046/
+author: Corelight Labs
+date: 2023-01-10
+modified: 2023-08-15
+tags:
+  - attack.discovery
+  - attack.t1046
+logsource:
+  category: network_connection
+  product: zeek
+  service: conn
+detection:
+  selection:
+    ts: '*'
+    id.resp_p|lt: 1024
+  filter:
+    resp_bytes: 0
+  condition: selection and filter
+  timeframe: 5m
+  condition_groupby:
+    count(id.resp_p) by id.orig_h > 50
+falsepositives:
+  - Vulnerability scanners (Nessus, Qualys, Tenable)
+  - Network monitoring tools
+  - Asset discovery
+level: medium

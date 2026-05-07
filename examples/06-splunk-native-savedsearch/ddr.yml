@@ -1,0 +1,64 @@
+ddr_version: "0.4"
+id: 7c3e9a2f-b841-4d12-9f6e-1a5c8d047b3e
+title: "Suppress: Excessive Failed Logins — vuln scanner and LDAP health check FPs"
+description: >
+  The "Excessive Failed Logins From Single Source" savedsearch fires ~120 times/week
+  in the DA-ESS-AccessProtection app. Approximately 95% are caused by two known
+  sources: (1) Nessus/Qualys credentialed scans from the vuln-scanner VLAN
+  (10.20.30.0/24), and (2) svc_ldap_health performing LDAP bind checks every 5
+  minutes. Neither source represents an attack. This DDR suppresses both FP classes
+  directly in SPL — no Sigma rule exists for this detection.
+
+target:
+  kind: splunk
+  query_ref:
+    name: Excessive Failed Logins From Single Source
+    app: DA-ESS-AccessProtection
+    query_hash: sha256:9f67aa9e2f7e15b2a9a62c694e9d1af4d685cddb7a09290575643157e5ffc06e
+    path_or_url: "examples/06-splunk-native-savedsearch/savedsearch.conf"
+
+decision:
+  kind: suppress
+  rationale: >
+    Vuln scanner IPs in 10.20.30.0/24 are authorized to probe all hosts for
+    credentialed-scan coverage (see SCAN-POLICY-07). svc_ldap_health is a dedicated
+    service account performing non-interactive LDAP health checks; its failure events
+    are expected during cert rotation windows (ticket INFRA-2841). Both are
+    definitionally non-malicious and operationally distinct from brute-force attacks
+    (no lateral movement, no new accounts created, no subsequent access).
+  tuning:
+    kind: splunk
+    filter_title: "FP Filter: vuln scanner VLAN and LDAP health check service account"
+    filter_description: >
+      Suppresses failed-login noise from the authorized vuln-scanner subnet and the
+      svc_ldap_health service account. Does NOT suppress src_ip outside 10.20.30.0/24
+      or any other service account.
+    splunk_filter: "src_ip=\"10.20.30.0/24\" OR user=\"svc_ldap_health\""
+
+lifecycle:
+  status: active
+  created_on: "2026-03-10T11:00:00Z"
+  activated_on: "2026-03-11T09:00:00Z"
+  expires_on: "2027-03-10T00:00:00Z"
+  review_cadence_days: 180
+  last_reviewed_on: "2026-03-11T09:00:00Z"
+
+provenance:
+  author: cray44@corp.example.com
+  reviewers:
+    - alice@corp.example.com
+  approved_by: alice@corp.example.com
+  ticket_refs:
+    - INFRA-2841
+    - SOC-9913
+  evidence:
+    - type: splunk_query
+      ref: "savedsearch://FP_ExcessiveFailedLogins_Baseline"
+      note: "30-day query confirming 95% of alerts match scanner VLAN or svc_ldap_health."
+    - type: ticket
+      ref: "INFRA-2841"
+      note: "LDAP cert rotation ticket documenting expected svc_ldap_health failure bursts."
+
+scope:
+  environments:
+    - production

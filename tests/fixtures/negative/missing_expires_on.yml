@@ -1,0 +1,22 @@
+# INVALID: active record missing required expires_on
+ddr_version: "0.1"
+id: f47ac10b-58cc-4372-a567-0e02b2c3d480
+title: "Missing expires_on"
+description: "This record is invalid because active status requires expires_on."
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: d7a95147-145f-4678-b555-b7a3c9b16830
+    content_hash: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    source: internal
+    path_or_url: rules/test.yml
+decision:
+  kind: accept-risk
+  rationale: "Missing expires_on should fail validation."
+lifecycle:
+  status: active
+  created_on: "2025-01-01T00:00:00Z"
+  activated_on: "2025-01-02T00:00:00Z"
+  # expires_on intentionally omitted
+provenance:
+  author: test@example.com

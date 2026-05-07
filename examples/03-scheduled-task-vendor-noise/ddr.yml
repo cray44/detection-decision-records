@@ -1,0 +1,61 @@
+ddr_version: "0.1"
+id: 550e8400-e29b-41d4-a716-446655440003
+title: "Suppress: Scheduled task creation by known software vendors"
+description: >
+  Adobe Acrobat, Microsoft Teams, and CrowdStrike create scheduled tasks during
+  installation and updates. These generate ~15 alerts/day. All are invoked from
+  vendor-signed binaries under Program Files, distinguishable from attacker
+  patterns (attacker tasks typically originate from temp dirs or user profile).
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: f2f1f8d0-5534-4e1d-bcb0-6ab80cbf4a4f
+    content_hash: sha256:d7c9bf8afe5a0f5020d4ed49cbe59d2e73dca2313c7af1b27dd4eb699730f2eb
+    source: sigmahq
+    path_or_url: "https://github.com/SigmaHQ/sigma/blob/main/rules/windows/process_creation/proc_creation_win_schtasks_creation.yml"
+decision:
+  kind: suppress
+  rationale: >
+    Known vendor paths under \Program Files\ and \Program Files (x86)\ account
+    for ~93% of the FP volume. Filtering these path prefixes is safe because
+    standard users cannot write to Program Files without elevation. An attacker
+    masquerading as a vendor installer from Program Files requires admin
+    privileges already — that's a separate detection surface (elevation, UAC
+    bypass) and not silenced here.
+  tuning:
+    filter_title: "FP Filter: Vendor scheduled tasks from Program Files"
+    filter_description: "Suppress schtasks.exe /create from known vendor install paths."
+    logsource:
+      category: process_creation
+      product: windows
+    selections:
+      known_fp_vendor_paths:
+        ParentImage|startswith:
+          - C:\Program Files\Adobe\
+          - C:\Program Files\Microsoft\
+          - C:\Program Files (x86)\Microsoft\
+          - C:\Program Files\CrowdStrike\
+          - C:\Program Files\Tenable\
+    condition: not known_fp_vendor_paths
+lifecycle:
+  status: active
+  created_on: "2025-08-20T10:00:00Z"
+  activated_on: "2025-08-21T08:30:00Z"
+  expires_on: "2026-08-21T08:30:00Z"
+  review_cadence_days: 90
+  last_reviewed_on: "2025-08-21T08:30:00Z"
+provenance:
+  author: dave@corp.example.com
+  reviewers:
+    - alice@corp.example.com
+    - charlie@corp.example.com
+  ticket_refs:
+    - SOC-3301
+  evidence:
+    - type: splunk_query
+      ref: "savedsearch://SchedTask_FP_Vendor_30d"
+      note: "30-day SPL query breaking down schtasks FPs by ParentImage path — top 5 are vendor binaries."
+scope:
+  environments:
+    - production
+    - corporate

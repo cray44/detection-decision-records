@@ -1,0 +1,27 @@
+title: AWS Root Account Usage
+id: 8c7f8e9a-2b3c-4d5e-6f7a-8b9c0d1e2f3a
+status: test
+description: Detects usage of the AWS root account, which should not be used for day-to-day operations.
+references:
+  - https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html
+  - https://attack.mitre.org/techniques/T1078/004/
+author: Loïc Brahic
+date: 2021-09-03
+modified: 2023-06-20
+tags:
+  - attack.initial_access
+  - attack.t1078.004
+logsource:
+  product: aws
+  service: cloudtrail
+detection:
+  selection:
+    userIdentity.type: Root
+    userIdentity.invokedBy|contains: AWS Internal
+    eventType: AwsConsoleSignIn
+  condition: selection
+falsepositives:
+  - Root account used for break-glass emergency access
+  - Billing console access
+  - MFA setup
+level: high

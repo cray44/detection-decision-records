@@ -1,0 +1,698 @@
+{
+  "$defs": {
+    "AcceptRiskDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "accept-risk",
+          "default": "accept-risk",
+          "title": "Kind",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rationale"
+      ],
+      "title": "AcceptRiskDecision",
+      "type": "object"
+    },
+    "DeprecateDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "deprecate",
+          "default": "deprecate",
+          "title": "Kind",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "replacement_rule_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replacement Rule Id"
+        }
+      },
+      "required": [
+        "rationale"
+      ],
+      "title": "DeprecateDecision",
+      "type": "object"
+    },
+    "Evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/EvidenceType"
+        },
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "note": {
+          "description": "One sentence explaining what this evidence shows",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ref",
+        "note"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "EvidenceType": {
+      "enum": [
+        "splunk_query",
+        "log_sample_uri",
+        "ticket",
+        "runbook",
+        "dashboard",
+        "pcap",
+        "other"
+      ],
+      "title": "EvidenceType",
+      "type": "string"
+    },
+    "Lifecycle": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/LifecycleStatus"
+        },
+        "created_on": {
+          "format": "date-time",
+          "title": "Created On",
+          "type": "string"
+        },
+        "activated_on": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activated On"
+        },
+        "retired_on": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retired On"
+        },
+        "expires_on": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires On"
+        },
+        "review_cadence_days": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Review Cadence Days"
+        },
+        "last_reviewed_on": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Reviewed On"
+        },
+        "superseded_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Superseded By"
+        },
+        "retirement_reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetirementReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "status",
+        "created_on"
+      ],
+      "title": "Lifecycle",
+      "type": "object"
+    },
+    "LifecycleStatus": {
+      "enum": [
+        "draft",
+        "active",
+        "retired"
+      ],
+      "title": "LifecycleStatus",
+      "type": "string"
+    },
+    "LogSource": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Category"
+        },
+        "product": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product"
+        },
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Service"
+        }
+      },
+      "title": "LogSource",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "title": "Author",
+          "type": "string"
+        },
+        "reviewers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reviewers",
+          "type": "array"
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved By"
+        },
+        "ticket_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Ticket Refs",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        }
+      },
+      "required": [
+        "author"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "RetirementReason": {
+      "enum": [
+        "rule-deprecated",
+        "fp-source-removed",
+        "replaced",
+        "other"
+      ],
+      "title": "RetirementReason",
+      "type": "string"
+    },
+    "RuleRef": {
+      "additionalProperties": false,
+      "properties": {
+        "rule_id": {
+          "format": "uuid",
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "content_hash": {
+          "description": "sha256:<64 lowercase hex chars>",
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/RuleSource"
+        },
+        "path_or_url": {
+          "title": "Path Or Url",
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        }
+      },
+      "required": [
+        "rule_id",
+        "content_hash",
+        "source",
+        "path_or_url"
+      ],
+      "title": "RuleRef",
+      "type": "object"
+    },
+    "RuleSource": {
+      "enum": [
+        "sigmahq",
+        "internal",
+        "vendor"
+      ],
+      "title": "RuleSource",
+      "type": "string"
+    },
+    "Scope": {
+      "additionalProperties": false,
+      "properties": {
+        "environments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Environments",
+          "type": "array"
+        },
+        "data_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Sources",
+          "type": "array"
+        }
+      },
+      "title": "Scope",
+      "type": "object"
+    },
+    "SigmaTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "sigma",
+          "default": "sigma",
+          "title": "Kind",
+          "type": "string"
+        },
+        "rule_ref": {
+          "$ref": "#/$defs/RuleRef"
+        }
+      },
+      "required": [
+        "rule_ref"
+      ],
+      "title": "SigmaTarget",
+      "type": "object"
+    },
+    "SigmaTuning": {
+      "additionalProperties": false,
+      "description": "Sigma-Filter-expressible IR. All fields are losslessly exportable to a Sigma Filter.",
+      "properties": {
+        "kind": {
+          "const": "sigma",
+          "default": "sigma",
+          "title": "Kind",
+          "type": "string"
+        },
+        "filter_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filter Title"
+        },
+        "filter_description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filter Description"
+        },
+        "logsource": {
+          "$ref": "#/$defs/LogSource"
+        },
+        "selections": {
+          "additionalProperties": true,
+          "description": "Named selection blocks mirroring Sigma filter: blocks",
+          "title": "Selections",
+          "type": "object"
+        },
+        "condition": {
+          "description": "Sigma filter condition string",
+          "title": "Condition",
+          "type": "string"
+        }
+      },
+      "required": [
+        "logsource",
+        "selections",
+        "condition"
+      ],
+      "title": "SigmaTuning",
+      "type": "object"
+    },
+    "SplunkQueryRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "savedsearches stanza name",
+          "title": "Name",
+          "type": "string"
+        },
+        "app": {
+          "description": "Splunk app context (e.g. 'search')",
+          "title": "App",
+          "type": "string"
+        },
+        "query_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "sha256 of normalized SPL (optional in v0.3)",
+          "title": "Query Hash"
+        },
+        "path_or_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Link to source or savedsearches.conf path",
+          "title": "Path Or Url"
+        }
+      },
+      "required": [
+        "name",
+        "app"
+      ],
+      "title": "SplunkQueryRef",
+      "type": "object"
+    },
+    "SplunkTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "splunk",
+          "default": "splunk",
+          "title": "Kind",
+          "type": "string"
+        },
+        "query_ref": {
+          "$ref": "#/$defs/SplunkQueryRef"
+        }
+      },
+      "required": [
+        "query_ref"
+      ],
+      "title": "SplunkTarget",
+      "type": "object"
+    },
+    "SplunkTuning": {
+      "additionalProperties": false,
+      "description": "Native SPL FP filter \u2014 no Sigma selections required.",
+      "properties": {
+        "kind": {
+          "const": "splunk",
+          "default": "splunk",
+          "title": "Kind",
+          "type": "string"
+        },
+        "filter_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filter Title"
+        },
+        "filter_description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filter Description"
+        },
+        "splunk_filter": {
+          "description": "Raw SPL filter clause (FP condition written directly)",
+          "title": "Splunk Filter",
+          "type": "string"
+        }
+      },
+      "required": [
+        "splunk_filter"
+      ],
+      "title": "SplunkTuning",
+      "type": "object"
+    },
+    "SuppressDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "suppress",
+          "default": "suppress",
+          "title": "Kind",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "tuning": {
+          "discriminator": {
+            "mapping": {
+              "sigma": "#/$defs/SigmaTuning",
+              "splunk": "#/$defs/SplunkTuning"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SigmaTuning"
+            },
+            {
+              "$ref": "#/$defs/SplunkTuning"
+            }
+          ],
+          "title": "Tuning"
+        }
+      },
+      "required": [
+        "rationale",
+        "tuning"
+      ],
+      "title": "SuppressDecision",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Top-level Detection Decision Record. Pydantic model is source of truth for JSON Schema.",
+  "properties": {
+    "ddr_version": {
+      "pattern": "^0\\.[1234]$",
+      "title": "Ddr Version",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "target": {
+      "discriminator": {
+        "mapping": {
+          "sigma": "#/$defs/SigmaTarget",
+          "splunk": "#/$defs/SplunkTarget"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SigmaTarget"
+        },
+        {
+          "$ref": "#/$defs/SplunkTarget"
+        }
+      ],
+      "title": "Target"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "decision": {
+      "discriminator": {
+        "mapping": {
+          "accept-risk": "#/$defs/AcceptRiskDecision",
+          "deprecate": "#/$defs/DeprecateDecision",
+          "suppress": "#/$defs/SuppressDecision"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SuppressDecision"
+        },
+        {
+          "$ref": "#/$defs/AcceptRiskDecision"
+        },
+        {
+          "$ref": "#/$defs/DeprecateDecision"
+        }
+      ],
+      "title": "Decision"
+    },
+    "lifecycle": {
+      "$ref": "#/$defs/Lifecycle"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    },
+    "scope": {
+      "$ref": "#/$defs/Scope"
+    },
+    "extensions": {
+      "additionalProperties": true,
+      "title": "Extensions",
+      "type": "object"
+    }
+  },
+  "required": [
+    "ddr_version",
+    "id",
+    "target",
+    "title",
+    "description",
+    "decision",
+    "lifecycle",
+    "provenance"
+  ],
+  "title": "DDRRecord",
+  "type": "object"
+}
