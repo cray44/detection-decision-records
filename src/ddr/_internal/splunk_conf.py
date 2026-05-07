@@ -36,8 +36,8 @@ def parse_savedsearches_conf(path: Path) -> dict[str, dict[str, str]]:
     logical: list[str] = []
     for raw in physical:
         if logical and logical[-1].endswith("\\") and not raw.lstrip().startswith("#"):
-                logical[-1] = logical[-1][:-1] + " " + raw
-                continue
+            logical[-1] = logical[-1][:-1] + " " + raw
+            continue
         logical.append(raw)
 
     result: dict[str, dict[str, str]] = {}

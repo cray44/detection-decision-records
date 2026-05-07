@@ -30,11 +30,12 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-# Patterns used by --strict free-text lint (heuristic, warn-only)
+# Patterns used by --strict free-text lint (heuristic, warn-only).
+# Bare IPs are not flagged — only IPs in log-line context (key=ip) or other log indicators.
 _LOG_LINE_RE = re.compile(
     r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})"  # ISO timestamps
-    r"|(\b(?:\d{1,3}\.){3}\d{1,3}\b)"              # IPv4
-    r"|(\w+=\w+\|\w+=\w+)"                          # key=value pipe logs
+    r"|(\w+=(?:\d{1,3}\.){3}\d{1,3}\b)"  # key=ip (src_ip=1.2.3.4)
+    r"|(\w+=\w+\|\w+=\w+)"  # key=value pipe logs
 )
 
 
@@ -161,7 +162,7 @@ def cmd_new(
                     "rule_id": rule_id,
                     "content_hash": content_hash,
                     "source": "internal",
-                    "path_or_url": str(sigma_rule.resolve()),
+                    "path_or_url": str(sigma_rule),
                 },
             },
             "decision": _build_sigma_decision_scaffold(decision_kind, dict(ls)),
@@ -273,9 +274,7 @@ def _cmd_new_splunk_from_conf(
             raise typer.Exit(1)
 
     if stanza.get("disabled") in ("1", "true"):
-        typer.echo(
-            f"WARN: stanza {name!r} has disabled=1 — savedsearch is not scheduled", err=True
-        )
+        typer.echo(f"WARN: stanza {name!r} has disabled=1 — savedsearch is not scheduled", err=True)
 
     search = stanza.get("search", "").strip()
     if not search:
@@ -342,6 +341,7 @@ def _build_sigma_decision_scaffold(kind: str, logsource: dict) -> dict:
             "rationale": "TODO: explain why this is an acceptable false positive",
             "tuning": {
                 "kind": "sigma",
+                "filter_title": "TODO: descriptive filter name",
                 "logsource": logsource or {"category": "TODO", "product": "TODO"},
                 "selections": {"known_fp": {"FieldName|contains": ["benign_value"]}},
                 "condition": "not known_fp",

@@ -34,9 +34,7 @@ def _suppress_record_data(**overrides) -> dict:
             "rationale": "Known FP.",
             "tuning": {
                 "logsource": {"category": "process_creation", "product": "windows"},
-                "selections": {
-                    "known_fp_sccm": {"ParentImage|endswith": ["\\ccmexec.exe"]}
-                },
+                "selections": {"known_fp_sccm": {"ParentImage|endswith": ["\\ccmexec.exe"]}},
                 "condition": "not known_fp_sccm",
             },
         },

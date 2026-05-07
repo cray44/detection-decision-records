@@ -88,9 +88,7 @@ def _build_splunk_suppression_sigma(record: DDRRecord, config: Path | Any | None
         default_flow_style=False,
     )
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yml", delete=False, encoding="utf-8"
-    ) as fh:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False, encoding="utf-8") as fh:
         fh.write(rule_yaml)
         tmp_path = Path(fh.name)
 

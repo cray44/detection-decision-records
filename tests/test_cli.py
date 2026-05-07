@@ -70,16 +70,30 @@ def test_validate_skips_non_ddr_yaml(tmp_path):
     assert "No DDR records" in result.output
 
 
-def test_validate_strict_warns_on_ip_in_description(valid_fixtures_dir, tmp_path):
+def test_validate_strict_warns_on_log_line_ip_in_description(valid_fixtures_dir, tmp_path):
+    """key=ip pattern in rationale triggers warn (raw log data)."""
     record_text = (valid_fixtures_dir / "suppress_basic.yml").read_text(encoding="utf-8")
     record_text = record_text.replace(
         "IT Operations uses PsExec via SCCM for patch management on corp endpoints.",
-        "IT Operations. FP triggered by 192.168.1.100 during SCCM scan.",
+        "IT Operations. src_ip=192.168.1.100 seen in SCCM scan logs.",
     )
     fp = tmp_path / "strict_test.yml"
     fp.write_text(record_text, encoding="utf-8")
     result = runner.invoke(app, ["validate", "--strict", str(fp)])
-    assert "WARN" in result.output or result.exit_code == 0  # warn but don't fail
+    assert "WARN" in result.output
+
+
+def test_validate_strict_bare_ip_no_warn(valid_fixtures_dir, tmp_path):
+    """Bare IP cited as infra context must not trigger warn."""
+    record_text = (valid_fixtures_dir / "suppress_basic.yml").read_text(encoding="utf-8")
+    record_text = record_text.replace(
+        "IT Operations uses PsExec via SCCM for patch management on corp endpoints.",
+        "Veeam backup servers 10.10.5.20 and 10.10.5.21 access ADMIN$ shares.",
+    )
+    fp = tmp_path / "strict_test.yml"
+    fp.write_text(record_text, encoding="utf-8")
+    result = runner.invoke(app, ["validate", "--strict", str(fp)])
+    assert "WARN" not in result.output
 
 
 def test_expire_check_no_issues(valid_fixtures_dir):
@@ -146,6 +160,7 @@ provenance:
     fp.write_text(record_text, encoding="utf-8")
     result = runner.invoke(app, ["expire-check", "--format", "json", str(fp)])
     import json
+
     data = json.loads(result.output)
     assert "expired" in data
     assert len(data["expired"]) == 1
@@ -481,7 +496,7 @@ def _make_splunk_ddr(tmp_path: Path, conf_path: Path, old_hash: str = "sha256:" 
     ddr = tmp_path / "ddr.yml"
     ddr.write_text(
         _SPLUNK_DDR_TEMPLATE.format(
-            old_hash=old_hash[len("sha256:"):],
+            old_hash=old_hash[len("sha256:") :],
             conf_path=str(conf_path).replace("\\", "/"),
         ),
         encoding="utf-8",

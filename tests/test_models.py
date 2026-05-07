@@ -118,10 +118,20 @@ def test_logsource_category_only():
 
 
 def test_lifecycle_active_requires_expires_on():
+    data = _suppress_record()
+    del data["lifecycle"]["expires_on"]
     with pytest.raises(ValidationError, match="expires_on"):
-        Lifecycle.model_validate(
-            {"status": "active", "created_on": _NOW.isoformat(), "activated_on": _NOW.isoformat()}
-        )
+        DDRRecord.model_validate(data)
+
+
+def test_lifecycle_active_deprecate_no_expires_on_allowed():
+    """deprecate + status:active is valid without expires_on (permanent tombstone)."""
+    data = _suppress_record()
+    del data["lifecycle"]["expires_on"]
+    data["lifecycle"]["activated_on"] = _NOW.isoformat()
+    data["decision"] = {"kind": "deprecate", "rationale": "Replaced by v2."}
+    record = DDRRecord.model_validate(data)
+    assert record.lifecycle.expires_on is None
 
 
 def test_lifecycle_retired_requires_retired_on():
@@ -331,9 +341,7 @@ def test_splunk_target_extra_field_rejected():
 
 
 def test_splunk_tuning_valid():
-    t = SplunkTuning.model_validate(
-        {"kind": "splunk", "splunk_filter": "src_ip=10.0.0.1"}
-    )
+    t = SplunkTuning.model_validate({"kind": "splunk", "splunk_filter": "src_ip=10.0.0.1"})
     assert t.splunk_filter == "src_ip=10.0.0.1"
 
 
@@ -349,9 +357,7 @@ def test_splunk_tuning_empty_filter_rejected():
 
 def test_splunk_tuning_extra_field_rejected():
     with pytest.raises(ValidationError):
-        SplunkTuning.model_validate(
-            {"kind": "splunk", "splunk_filter": "host=foo", "bad": "field"}
-        )
+        SplunkTuning.model_validate({"kind": "splunk", "splunk_filter": "host=foo", "bad": "field"})
 
 
 # --- v0.3: Tuning alias ---
@@ -470,14 +476,14 @@ def test_ddr_version_03_accepted():
 def test_mixed_sigma_splunk_directory_validates(valid_fixtures_dir):
     """Both Sigma-targeted and Splunk-targeted fixtures parse cleanly."""
     sigma_record = DDRRecord.model_validate(
-        __import__("ruamel.yaml", fromlist=["YAML"]).YAML(typ="safe").load(
-            (valid_fixtures_dir / "suppress_basic.yml").read_text()
-        )
+        __import__("ruamel.yaml", fromlist=["YAML"])
+        .YAML(typ="safe")
+        .load((valid_fixtures_dir / "suppress_basic.yml").read_text())
     )
     splunk_record = DDRRecord.model_validate(
-        __import__("ruamel.yaml", fromlist=["YAML"]).YAML(typ="safe").load(
-            (valid_fixtures_dir / "splunk_native_suppress.yml").read_text()
-        )
+        __import__("ruamel.yaml", fromlist=["YAML"])
+        .YAML(typ="safe")
+        .load((valid_fixtures_dir / "splunk_native_suppress.yml").read_text())
     )
     assert sigma_record.target.kind == "sigma"
     assert splunk_record.target.kind == "splunk"

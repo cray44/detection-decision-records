@@ -49,9 +49,7 @@ def _suppress_record_data(condition: str = "not known_fp") -> dict:
             "tuning": {
                 "filter_title": "Test FP Filter",
                 "logsource": {"category": "process_creation", "product": "windows"},
-                "selections": {
-                    "known_fp": {"ParentImage|endswith": ["\\ccmexec.exe"]}
-                },
+                "selections": {"known_fp": {"ParentImage|endswith": ["\\ccmexec.exe"]}},
                 "condition": condition,
             },
         },
@@ -67,8 +65,10 @@ def _suppress_record_data(condition: str = "not known_fp") -> dict:
 
 # ── _strip_not (always run) ───────────────────────────────────────────────────
 
+
 def test_strip_not_simple():
     from ddr.exporters.splunk import _strip_not
+
     inner, had_not = _strip_not("not known_fp")
     assert inner == "known_fp"
     assert had_not is True
@@ -76,6 +76,7 @@ def test_strip_not_simple():
 
 def test_strip_not_parens():
     from ddr.exporters.splunk import _strip_not
+
     inner, had_not = _strip_not("not (known_fp_1 or known_fp_2)")
     assert inner == "known_fp_1 or known_fp_2"
     assert had_not is True
@@ -83,6 +84,7 @@ def test_strip_not_parens():
 
 def test_strip_not_uppercase():
     from ddr.exporters.splunk import _strip_not
+
     inner, had_not = _strip_not("NOT known_fp")
     assert inner == "known_fp"
     assert had_not is True
@@ -90,6 +92,7 @@ def test_strip_not_uppercase():
 
 def test_strip_not_no_not():
     from ddr.exporters.splunk import _strip_not
+
     inner, had_not = _strip_not("known_fp")
     assert inner == "known_fp"
     assert had_not is False
@@ -97,8 +100,10 @@ def test_strip_not_no_not():
 
 # ── Non-suppress raises (no sigma-to-spl needed) ─────────────────────────────
 
+
 def test_build_splunk_suppression_non_suppress_raises():
     from ddr.exporters.splunk import build_splunk_suppression
+
     data = _suppress_record_data()
     data["decision"] = {"kind": "accept-risk", "rationale": "Accepted."}
     record = DDRRecord.model_validate(data)
@@ -107,6 +112,7 @@ def test_build_splunk_suppression_non_suppress_raises():
 
 
 # ── Missing sigma-to-spl error ────────────────────────────────────────────────
+
 
 def test_missing_sigma_to_spl_raises_runtime_error():
     """RuntimeError with install instructions when sigma_to_spl is not importable."""
@@ -121,9 +127,11 @@ def test_missing_sigma_to_spl_raises_runtime_error():
 
 # ── Unit tests (require sigma-to-spl) ────────────────────────────────────────
 
+
 @requires_sigma_to_spl
 def test_build_splunk_suppression_returns_not_clause():
     from ddr.exporters.splunk import build_splunk_suppression
+
     record = DDRRecord.model_validate(_suppress_record_data())
     result = build_splunk_suppression(record)
     assert result.startswith("NOT (")
@@ -134,6 +142,7 @@ def test_build_splunk_suppression_returns_not_clause():
 @requires_sigma_to_spl
 def test_build_splunk_suppression_no_not_warns():
     from ddr.exporters.splunk import build_splunk_suppression
+
     record = DDRRecord.model_validate(_suppress_record_data(condition="known_fp"))
     with pytest.warns(UserWarning, match="does not start with 'not'"):
         result = build_splunk_suppression(record)
@@ -144,6 +153,7 @@ def test_build_splunk_suppression_no_not_warns():
 @requires_sigma_to_spl
 def test_export_to_spl_savedsearches_format():
     from ddr.exporters.splunk import export_to_spl
+
     record = DDRRecord.model_validate(_suppress_record_data())
     result = export_to_spl(record, fmt="savedsearches")
     assert "[test_fp_filter]" in result
@@ -154,6 +164,7 @@ def test_export_to_spl_savedsearches_format():
 @requires_sigma_to_spl
 def test_export_to_spl_writes_file(tmp_path):
     from ddr.exporters.splunk import export_to_spl
+
     record = DDRRecord.model_validate(_suppress_record_data())
     out = tmp_path / "fragment.spl"
     result = export_to_spl(record, output=out)
@@ -164,23 +175,28 @@ def test_export_to_spl_writes_file(tmp_path):
 
 # ── v0.3: _normalize_splunk_filter ───────────────────────────────────────────
 
+
 def test_normalize_splunk_filter_plain():
     from ddr.exporters.splunk import _normalize_splunk_filter
+
     assert _normalize_splunk_filter("src_ip=10.0.0.1") == "src_ip=10.0.0.1"
 
 
 def test_normalize_splunk_filter_strips_outer_not():
     from ddr.exporters.splunk import _normalize_splunk_filter
+
     assert _normalize_splunk_filter("NOT (src_ip=10.0.0.1)") == "src_ip=10.0.0.1"
 
 
 def test_normalize_splunk_filter_compound():
     from ddr.exporters.splunk import _normalize_splunk_filter
+
     result = _normalize_splunk_filter('NOT (src_ip="10.0.0.0/8" OR user=svc_foo)')
     assert result == 'src_ip="10.0.0.0/8" OR user=svc_foo'
 
 
 # ── v0.3: Splunk-native build_splunk_suppression (no sigma-to-spl) ───────────
+
 
 def _splunk_native_record_data(splunk_filter: str = 'src_ip="10.20.30.0/24"') -> dict:
     return {
@@ -212,6 +228,7 @@ def _splunk_native_record_data(splunk_filter: str = 'src_ip="10.20.30.0/24"') ->
 
 def test_build_splunk_suppression_native_returns_not_clause():
     from ddr.exporters.splunk import build_splunk_suppression
+
     record = DDRRecord.model_validate(_splunk_native_record_data())
     result = build_splunk_suppression(record)
     assert result == 'NOT (src_ip="10.20.30.0/24")'
@@ -219,6 +236,7 @@ def test_build_splunk_suppression_native_returns_not_clause():
 
 def test_build_splunk_suppression_native_strips_outer_not():
     from ddr.exporters.splunk import build_splunk_suppression
+
     record = DDRRecord.model_validate(_splunk_native_record_data('NOT (src_ip="10.20.30.0/24")'))
     result = build_splunk_suppression(record)
     assert result == 'NOT (src_ip="10.20.30.0/24")'
@@ -229,6 +247,7 @@ def test_build_splunk_suppression_native_no_sigma_to_spl_needed(monkeypatch):
     import sys
 
     from ddr.exporters.splunk import build_splunk_suppression
+
     record = DDRRecord.model_validate(_splunk_native_record_data())
 
     # Simulate sigma-to-spl absent
@@ -246,6 +265,7 @@ def test_build_splunk_suppression_native_no_sigma_to_spl_needed(monkeypatch):
 
 def test_export_to_spl_native_fragment():
     from ddr.exporters.splunk import export_to_spl
+
     record = DDRRecord.model_validate(_splunk_native_record_data())
     result = export_to_spl(record, fmt="fragment")
     assert result == 'NOT (src_ip="10.20.30.0/24")'
@@ -253,6 +273,7 @@ def test_export_to_spl_native_fragment():
 
 def test_export_to_spl_native_savedsearches():
     from ddr.exporters.splunk import export_to_spl
+
     record = DDRRecord.model_validate(_splunk_native_record_data())
     result = export_to_spl(record, fmt="savedsearches")
     assert "excessive_failed_logins" in result
@@ -262,8 +283,10 @@ def test_export_to_spl_native_savedsearches():
 
 # ── Integration: example 06 (no sigma-to-spl) ────────────────────────────────
 
+
 def test_example_06_validates():
     from ruamel.yaml import YAML
+
     ddr_path = EXAMPLES_DIR / "06-splunk-native-savedsearch" / "ddr.yml"
     y = YAML(typ="safe")
     with open(ddr_path, encoding="utf-8") as fh:
@@ -301,12 +324,16 @@ def test_example_06_export_fragment(monkeypatch):
 
 # ── Integration: real suppress examples ──────────────────────────────────────
 
+
 @requires_sigma_to_spl
-@pytest.mark.parametrize("example_dir,expected_in_spl", [
-    ("01-psexec-admin-suppression", "ParentImage"),
-    ("02-nessus-network-scanner", "id.orig_h"),
-    ("03-scheduled-task-vendor-noise", "ParentImage"),
-])
+@pytest.mark.parametrize(
+    "example_dir,expected_in_spl",
+    [
+        ("01-psexec-admin-suppression", "ParentImage"),
+        ("02-nessus-network-scanner", "id.orig_h"),
+        ("03-scheduled-task-vendor-noise", "ParentImage"),
+    ],
+)
 def test_export_splunk_suppress_examples(example_dir, expected_in_spl):
     from ruamel.yaml import YAML
 
