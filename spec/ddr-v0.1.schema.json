@@ -85,6 +85,7 @@
         "runbook",
         "dashboard",
         "pcap",
+        "note",
         "other"
       ],
       "title": "EvidenceType",
@@ -398,34 +399,16 @@
       "title": "SigmaTarget",
       "type": "object"
     },
-    "SuppressDecision": {
+    "SigmaTuning": {
       "additionalProperties": false,
+      "description": "Sigma-Filter-expressible IR. All fields are losslessly exportable to a Sigma Filter.",
       "properties": {
         "kind": {
-          "const": "suppress",
-          "default": "suppress",
+          "const": "sigma",
+          "default": "sigma",
           "title": "Kind",
           "type": "string"
         },
-        "rationale": {
-          "title": "Rationale",
-          "type": "string"
-        },
-        "tuning": {
-          "$ref": "#/$defs/Tuning"
-        }
-      },
-      "required": [
-        "rationale",
-        "tuning"
-      ],
-      "title": "SuppressDecision",
-      "type": "object"
-    },
-    "Tuning": {
-      "additionalProperties": false,
-      "description": "Sigma-Filter-expressible IR. All v0.1 fields are losslessly exportable to a Sigma Filter.",
-      "properties": {
         "filter_title": {
           "anyOf": [
             {
@@ -470,7 +453,158 @@
         "selections",
         "condition"
       ],
-      "title": "Tuning",
+      "title": "SigmaTuning",
+      "type": "object"
+    },
+    "SplunkQueryRef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "savedsearches stanza name",
+          "title": "Name",
+          "type": "string"
+        },
+        "app": {
+          "description": "Splunk app context (e.g. 'search')",
+          "title": "App",
+          "type": "string"
+        },
+        "query_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "sha256 of normalized SPL (optional in v0.3)",
+          "title": "Query Hash"
+        },
+        "path_or_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Link to source or savedsearches.conf path",
+          "title": "Path Or Url"
+        }
+      },
+      "required": [
+        "name",
+        "app"
+      ],
+      "title": "SplunkQueryRef",
+      "type": "object"
+    },
+    "SplunkTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "splunk",
+          "default": "splunk",
+          "title": "Kind",
+          "type": "string"
+        },
+        "query_ref": {
+          "$ref": "#/$defs/SplunkQueryRef"
+        }
+      },
+      "required": [
+        "query_ref"
+      ],
+      "title": "SplunkTarget",
+      "type": "object"
+    },
+    "SplunkTuning": {
+      "additionalProperties": false,
+      "description": "Native SPL FP filter \u2014 no Sigma selections required.",
+      "properties": {
+        "kind": {
+          "const": "splunk",
+          "default": "splunk",
+          "title": "Kind",
+          "type": "string"
+        },
+        "filter_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filter Title"
+        },
+        "filter_description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Filter Description"
+        },
+        "splunk_filter": {
+          "description": "Raw SPL filter clause (FP condition written directly)",
+          "title": "Splunk Filter",
+          "type": "string"
+        }
+      },
+      "required": [
+        "splunk_filter"
+      ],
+      "title": "SplunkTuning",
+      "type": "object"
+    },
+    "SuppressDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "suppress",
+          "default": "suppress",
+          "title": "Kind",
+          "type": "string"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "tuning": {
+          "discriminator": {
+            "mapping": {
+              "sigma": "#/$defs/SigmaTuning",
+              "splunk": "#/$defs/SplunkTuning"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SigmaTuning"
+            },
+            {
+              "$ref": "#/$defs/SplunkTuning"
+            }
+          ],
+          "title": "Tuning"
+        }
+      },
+      "required": [
+        "rationale",
+        "tuning"
+      ],
+      "title": "SuppressDecision",
       "type": "object"
     }
   },
@@ -478,7 +612,7 @@
   "description": "Top-level Detection Decision Record. Pydantic model is source of truth for JSON Schema.",
   "properties": {
     "ddr_version": {
-      "pattern": "^0\\.1$",
+      "pattern": "^0\\.[1234]$",
       "title": "Ddr Version",
       "type": "string"
     },
@@ -488,7 +622,22 @@
       "type": "string"
     },
     "target": {
-      "$ref": "#/$defs/SigmaTarget"
+      "discriminator": {
+        "mapping": {
+          "sigma": "#/$defs/SigmaTarget",
+          "splunk": "#/$defs/SplunkTarget"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SigmaTarget"
+        },
+        {
+          "$ref": "#/$defs/SplunkTarget"
+        }
+      ],
+      "title": "Target"
     },
     "title": {
       "title": "Title",
