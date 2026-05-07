@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -17,13 +17,9 @@ from ddr.models.record import (
     Lifecycle,
     LifecycleStatus,
     LogSource,
-    Provenance,
-    RetirementReason,
     RuleRef,
-    RuleSource,
-    Scope,
-    SigmaTuning,
     SigmaTarget,
+    SigmaTuning,
     SplunkQueryRef,
     SplunkTarget,
     SplunkTuning,
@@ -34,9 +30,9 @@ from ddr.models.record import (
 _VALID_HASH = "sha256:" + "a" * 64
 _RULE_ID = UUID("d7a95147-145f-4678-b555-b7a3c9b16830")
 _DDR_ID = UUID("f47ac10b-58cc-4372-a567-0e02b2c3d479")
-_NOW = datetime(2025, 1, 15, 9, 0, 0, tzinfo=timezone.utc)
-_FUTURE = datetime(2026, 1, 15, 9, 0, 0, tzinfo=timezone.utc)
-_PAST = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2025, 1, 15, 9, 0, 0, tzinfo=UTC)
+_FUTURE = datetime(2026, 1, 15, 9, 0, 0, tzinfo=UTC)
+_PAST = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
 
 
 def _rule_ref(**kwargs) -> dict:
@@ -274,7 +270,9 @@ def test_evidence_requires_note():
 
 
 def test_evidence_valid():
-    ev = Evidence.model_validate({"type": "ticket", "ref": "JIRA-123", "note": "Ticket tracking this FP."})
+    ev = Evidence.model_validate(
+        {"type": "ticket", "ref": "JIRA-123", "note": "Ticket tracking this FP."}
+    )
     assert ev.type == EvidenceType.ticket
 
 
@@ -432,7 +430,7 @@ def test_ddr_record_cross_field_validator_kind_mismatch():
         "selections": {"fp": {"host": "foo"}},
         "condition": "not fp",
     }
-    with pytest.raises(ValidationError, match="tuning.kind"):
+    with pytest.raises(ValidationError, match=r"tuning\.kind"):
         DDRRecord.model_validate(data)
 
 
@@ -442,7 +440,7 @@ def test_ddr_record_cross_field_validator_sigma_target_splunk_tuning():
         "kind": "splunk",
         "splunk_filter": "host=foo",
     }
-    with pytest.raises(ValidationError, match="tuning.kind"):
+    with pytest.raises(ValidationError, match=r"tuning\.kind"):
         DDRRecord.model_validate(data)
 
 

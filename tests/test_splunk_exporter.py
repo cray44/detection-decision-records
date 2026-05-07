@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,8 +12,8 @@ import pytest
 from ddr.models.record import DDRRecord
 
 _VALID_HASH = "sha256:" + "a" * 64
-_NOW = datetime(2025, 1, 15, 9, 0, 0, tzinfo=timezone.utc)
-_FUTURE = datetime(2026, 1, 15, 9, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2025, 1, 15, 9, 0, 0, tzinfo=UTC)
+_FUTURE = datetime(2026, 1, 15, 9, 0, 0, tzinfo=UTC)
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 
@@ -112,9 +112,11 @@ def test_missing_sigma_to_spl_raises_runtime_error():
     """RuntimeError with install instructions when sigma_to_spl is not importable."""
     from ddr.exporters.splunk import _require_sigma_to_spl
 
-    with patch.dict(sys.modules, {"sigma_to_spl": None}):
-        with pytest.raises(RuntimeError, match="sigma-to-spl"):
-            _require_sigma_to_spl()
+    with (
+        patch.dict(sys.modules, {"sigma_to_spl": None}),
+        pytest.raises(RuntimeError, match="sigma-to-spl"),
+    ):
+        _require_sigma_to_spl()
 
 
 # ── Unit tests (require sigma-to-spl) ────────────────────────────────────────
@@ -174,7 +176,8 @@ def test_normalize_splunk_filter_strips_outer_not():
 
 def test_normalize_splunk_filter_compound():
     from ddr.exporters.splunk import _normalize_splunk_filter
-    assert _normalize_splunk_filter('NOT (src_ip="10.0.0.0/8" OR user=svc_foo)') == 'src_ip="10.0.0.0/8" OR user=svc_foo'
+    result = _normalize_splunk_filter('NOT (src_ip="10.0.0.0/8" OR user=svc_foo)')
+    assert result == 'src_ip="10.0.0.0/8" OR user=svc_foo'
 
 
 # ── v0.3: Splunk-native build_splunk_suppression (no sigma-to-spl) ───────────
@@ -224,6 +227,7 @@ def test_build_splunk_suppression_native_strips_outer_not():
 def test_build_splunk_suppression_native_no_sigma_to_spl_needed(monkeypatch):
     """Splunk-native export must not import sigma_to_spl."""
     import sys
+
     from ddr.exporters.splunk import build_splunk_suppression
     record = DDRRecord.model_validate(_splunk_native_record_data())
 
@@ -269,9 +273,11 @@ def test_example_06_validates():
 
 
 def test_example_06_export_fragment(monkeypatch):
-    from ruamel.yaml import YAML
-    from ddr.exporters.splunk import build_splunk_suppression
     import sys
+
+    from ruamel.yaml import YAML
+
+    from ddr.exporters.splunk import build_splunk_suppression
 
     ddr_path = EXAMPLES_DIR / "06-splunk-native-savedsearch" / "ddr.yml"
     y = YAML(typ="safe")
@@ -303,6 +309,7 @@ def test_example_06_export_fragment(monkeypatch):
 ])
 def test_export_splunk_suppress_examples(example_dir, expected_in_spl):
     from ruamel.yaml import YAML
+
     from ddr.exporters.splunk import build_splunk_suppression
 
     ddr_path = EXAMPLES_DIR / example_dir / "ddr.yml"

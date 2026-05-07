@@ -58,6 +58,9 @@ select = [
     "SIM",           # simplify
     "RUF",           # ruff-specific
 ]
+ignore = [
+    "B008",  # Typer requires function calls in argument defaults
+]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

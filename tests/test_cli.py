@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
 from ddr.cli import app
@@ -173,7 +172,12 @@ def test_export_sigma_filter_to_file(valid_fixtures_dir, tmp_path):
     out = tmp_path / "filter.yml"
     result = runner.invoke(
         app,
-        ["export-sigma-filter", str(valid_fixtures_dir / "suppress_basic.yml"), "--output", str(out)],
+        [
+            "export-sigma-filter",
+            str(valid_fixtures_dir / "suppress_basic.yml"),
+            "--output",
+            str(out),
+        ],
     )
     assert result.exit_code == 0
     assert out.exists()
@@ -206,7 +210,11 @@ detection:
 def test_new_to_output_file(tmp_path):
     rule = tmp_path / "rule.yml"
     rule.write_text(
-        "title: Rule\nid: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\nlogsource:\n  product: windows\ndetection:\n  selection:\n    field: val\n  condition: selection\n",
+        (
+            "title: Rule\nid: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\n"
+            "logsource:\n  product: windows\ndetection:\n  selection:\n"
+            "    field: val\n  condition: selection\n"
+        ),
         encoding="utf-8",
     )
     out = tmp_path / "new_ddr.yml"
@@ -249,7 +257,8 @@ def test_new_splunk_target_without_name_fails():
 
 def test_new_splunk_target_custom_app():
     result = runner.invoke(
-        app, ["new", "--target", "splunk", "--name", "My Detection", "--app", "DA-ESS-AccessProtection"]
+        app,
+        ["new", "--target", "splunk", "--name", "My Detection", "--app", "DA-ESS-AccessProtection"],
     )
     assert result.exit_code == 0
     assert "DA-ESS-AccessProtection" in result.output
@@ -301,7 +310,12 @@ def test_export_splunk_native_target(valid_fixtures_dir):
 def test_export_splunk_native_target_savedsearches(valid_fixtures_dir):
     result = runner.invoke(
         app,
-        ["export-splunk", str(valid_fixtures_dir / "splunk_native_suppress.yml"), "--format", "savedsearches"],
+        [
+            "export-splunk",
+            str(valid_fixtures_dir / "splunk_native_suppress.yml"),
+            "--format",
+            "savedsearches",
+        ],
     )
     assert result.exit_code == 0
     assert "search = NOT" in result.output
@@ -313,7 +327,12 @@ def test_export_splunk_native_config_warns(valid_fixtures_dir, tmp_path):
     fake_config.write_text("field_mappings: {}\n", encoding="utf-8")
     result = runner.invoke(
         app,
-        ["export-splunk", str(valid_fixtures_dir / "splunk_native_suppress.yml"), "--config", str(fake_config)],
+        [
+            "export-splunk",
+            str(valid_fixtures_dir / "splunk_native_suppress.yml"),
+            "--config",
+            str(fake_config),
+        ],
     )
     # Should warn but still succeed
     assert "WARN" in result.output
@@ -355,7 +374,9 @@ search = index=main event=beta
 def test_new_splunk_from_conf_with_name(tmp_path):
     conf = tmp_path / "savedsearches.conf"
     conf.write_text(_SIMPLE_CONF, encoding="utf-8")
-    result = runner.invoke(app, ["new", "--target", "splunk", str(conf), "--name", "My Noisy Detection"])
+    result = runner.invoke(
+        app, ["new", "--target", "splunk", str(conf), "--name", "My Noisy Detection"]
+    )
     assert result.exit_code == 0
     assert "sha256:" in result.output
     assert "My Noisy Detection" in result.output
@@ -479,7 +500,11 @@ def test_refresh_hash_splunk_updates(tmp_path):
 
 
 def test_refresh_hash_splunk_unchanged(tmp_path):
-    from ddr._internal.splunk_conf import compute_query_hash, extract_stanza, parse_savedsearches_conf
+    from ddr._internal.splunk_conf import (
+        compute_query_hash,
+        extract_stanza,
+        parse_savedsearches_conf,
+    )
 
     conf = tmp_path / "savedsearches.conf"
     conf.write_text(_SIMPLE_CONF, encoding="utf-8")
@@ -498,7 +523,9 @@ def test_refresh_hash_splunk_conf_override(tmp_path):
     conf.write_text(_SIMPLE_CONF, encoding="utf-8")
 
     other_conf = tmp_path / "other.conf"
-    other_conf.write_text("[My Noisy Detection]\nsearch = index=main sourcetype=other\n", encoding="utf-8")
+    other_conf.write_text(
+        "[My Noisy Detection]\nsearch = index=main sourcetype=other\n", encoding="utf-8"
+    )
 
     ddr = _make_splunk_ddr(tmp_path, conf)
     result = runner.invoke(app, ["refresh-hash", str(ddr), "--conf", str(other_conf)])
@@ -525,7 +552,6 @@ def test_refresh_hash_splunk_http_url_no_conf(tmp_path):
 
 
 def test_validate_strict_splunk_drift_warns(tmp_path):
-    from ddr._internal.splunk_conf import compute_query_hash
 
     conf = tmp_path / "savedsearches.conf"
     conf.write_text(_SIMPLE_CONF, encoding="utf-8")
@@ -539,7 +565,11 @@ def test_validate_strict_splunk_drift_warns(tmp_path):
 
 
 def test_validate_strict_splunk_no_drift_no_warn(tmp_path):
-    from ddr._internal.splunk_conf import compute_query_hash, extract_stanza, parse_savedsearches_conf
+    from ddr._internal.splunk_conf import (
+        compute_query_hash,
+        extract_stanza,
+        parse_savedsearches_conf,
+    )
 
     conf = tmp_path / "savedsearches.conf"
     conf.write_text(_SIMPLE_CONF, encoding="utf-8")

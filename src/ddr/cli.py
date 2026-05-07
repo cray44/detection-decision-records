@@ -5,8 +5,7 @@ from __future__ import annotations
 import io
 import json
 import re
-import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -17,7 +16,13 @@ from ruamel.yaml import YAML
 
 from ddr._internal.hash_utils import compute_content_hash
 from ddr.exporters.sigma_filter import export_to_yaml
-from ddr.models.record import DDRRecord, LifecycleStatus, SigmaTarget, SplunkTarget, SuppressDecision
+from ddr.models.record import (
+    DDRRecord,
+    LifecycleStatus,
+    SigmaTarget,
+    SplunkTarget,
+    SuppressDecision,
+)
 
 app = typer.Typer(
     name="ddr",
@@ -70,7 +75,7 @@ def _strip_none(obj: Any) -> Any:
 
 
 def _now_utc() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @app.command("new")
@@ -79,18 +84,20 @@ def cmd_new(
         default=None,
         help="Path to Sigma rule YAML (--target sigma) or savedsearches.conf (--target splunk).",
     ),
-    output: Path | None = typer.Option(None, "--output", "-o", help="Write new DDR here (default: stdout)."),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Write new DDR here (default: stdout)."
+    ),
     decision_kind: str = typer.Option(
         "suppress", "--decision", "-d", help="Decision type: suppress | accept-risk | deprecate."
     ),
-    target_kind: str = typer.Option(
-        "sigma", "--target", "-t", help="Target kind: sigma | splunk."
-    ),
+    target_kind: str = typer.Option("sigma", "--target", "-t", help="Target kind: sigma | splunk."),
     splunk_name: str | None = typer.Option(
         None, "--name", help="Splunk savedsearch stanza name (--target splunk)."
     ),
     splunk_app: str = typer.Option(
-        "search", "--app", help="Splunk app context (default: search; overridden by path inference)."
+        "search",
+        "--app",
+        help="Splunk app context (default: search; overridden by path inference).",
     ),
 ) -> None:
     """Scaffold a DDR from a Sigma rule or savedsearches.conf."""
@@ -237,7 +244,7 @@ def _cmd_new_splunk_from_conf(
         conf = parse_savedsearches_conf(conf_path)
     except Exception as exc:
         typer.echo(f"ERROR: failed to parse {conf_path}: {exc}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if not conf:
         typer.echo(f"ERROR: no stanzas found in {conf_path}", err=True)
@@ -249,7 +256,7 @@ def _cmd_new_splunk_from_conf(
             stanza = extract_stanza(conf, splunk_name)
         except KeyError as exc:
             typer.echo(f"ERROR: {exc}", err=True)
-            raise typer.Exit(1)
+            raise typer.Exit(1) from exc
         name = splunk_name
     else:
         stanzas = list(conf.keys())
@@ -266,7 +273,9 @@ def _cmd_new_splunk_from_conf(
             raise typer.Exit(1)
 
     if stanza.get("disabled") in ("1", "true"):
-        typer.echo(f"WARN: stanza {name!r} has disabled=1 — savedsearch is not scheduled", err=True)
+        typer.echo(
+            f"WARN: stanza {name!r} has disabled=1 — savedsearch is not scheduled", err=True
+        )
 
     search = stanza.get("search", "").strip()
     if not search:
@@ -277,14 +286,11 @@ def _cmd_new_splunk_from_conf(
         query_hash = compute_query_hash(search)
     except ValueError as exc:
         typer.echo(f"ERROR: {exc}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     # App inference: prefer inferred app over the "search" default; --app always wins
     inferred_app = infer_app_from_path(conf_path)
-    if splunk_app == "search" and inferred_app:
-        app = inferred_app
-    else:
-        app = splunk_app
+    app = inferred_app if splunk_app == "search" and inferred_app else splunk_app
 
     scaffold = _strip_none(
         {
@@ -360,7 +366,9 @@ def _build_splunk_decision_scaffold(kind: str) -> dict:
             "tuning": {
                 "kind": "splunk",
                 "filter_title": "TODO: descriptive filter name",
-                "splunk_filter": "TODO: raw SPL filter clause (e.g. user=svc_* OR src_ip=10.0.0.0/8)",
+                "splunk_filter": (
+                    "TODO: raw SPL filter clause (e.g. user=svc_* OR src_ip=10.0.0.0/8)"
+                ),
             },
         }
     if kind == "accept-risk":
@@ -382,7 +390,9 @@ def _build_decision_scaffold(kind: str, logsource: dict) -> dict:
 @app.command("validate")
 def cmd_validate(
     path: Path = typer.Argument(..., help="DDR file or directory."),
-    strict: bool = typer.Option(False, "--strict", help="Enable free-text lints beyond schema validation."),
+    strict: bool = typer.Option(
+        False, "--strict", help="Enable free-text lints beyond schema validation."
+    ),
 ) -> None:
     """Validate one record or every .yml/.yaml under a directory."""
     if not path.exists():
@@ -440,7 +450,8 @@ def _strict_lint(fp: Path, record: DDRRecord) -> None:
     for text in texts:
         if _LOG_LINE_RE.search(text):
             typer.echo(
-                f"  WARN  {fp}: description/rationale may contain raw log data (use evidence.ref instead)",
+                f"  WARN  {fp}: description/rationale may contain raw log data"
+                " (use evidence.ref instead)",
                 err=True,
             )
             break
@@ -467,7 +478,11 @@ def _strict_splunk_drift_check(fp: Path, record: DDRRecord) -> None:
         return
 
     try:
-        from ddr._internal.splunk_conf import compute_query_hash, extract_stanza, parse_savedsearches_conf
+        from ddr._internal.splunk_conf import (
+            compute_query_hash,
+            extract_stanza,
+            parse_savedsearches_conf,
+        )
 
         conf = parse_savedsearches_conf(conf_path)
         stanza = extract_stanza(conf, qref.name)
@@ -487,7 +502,9 @@ def _strict_splunk_drift_check(fp: Path, record: DDRRecord) -> None:
 @app.command("expire-check")
 def cmd_expire_check(
     path: Path = typer.Argument(..., help="DDR file or directory."),
-    days_ahead: int = typer.Option(0, "--days-ahead", help="Also flag records expiring within N days."),
+    days_ahead: int = typer.Option(
+        0, "--days-ahead", help="Also flag records expiring within N days."
+    ),
     fmt: str = typer.Option("table", "--format", help="Output format: table | json."),
 ) -> None:
     """Report expired or due-for-review active records (computed from dates, not stored state)."""
@@ -495,7 +512,7 @@ def cmd_expire_check(
         typer.echo(f"ERROR: {path} not found", err=True)
         raise typer.Exit(1)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     horizon = now + timedelta(days=days_ahead) if days_ahead > 0 else now
 
     expired: list[dict] = []
@@ -526,14 +543,18 @@ def cmd_expire_check(
         }
 
         if lc.expires_on:
-            exp = lc.expires_on if lc.expires_on.tzinfo else lc.expires_on.replace(tzinfo=timezone.utc)
+            exp = lc.expires_on if lc.expires_on.tzinfo else lc.expires_on.replace(tzinfo=UTC)
             if exp < now:
                 expired.append({**entry, "issue": "EXPIRED"})
             elif days_ahead > 0 and exp <= horizon:
                 expiring_soon.append({**entry, "issue": f"EXPIRING_IN_{(exp - now).days}d"})
 
         if lc.review_cadence_days and lc.last_reviewed_on:
-            rev = lc.last_reviewed_on if lc.last_reviewed_on.tzinfo else lc.last_reviewed_on.replace(tzinfo=timezone.utc)
+            rev = (
+                lc.last_reviewed_on
+                if lc.last_reviewed_on.tzinfo
+                else lc.last_reviewed_on.replace(tzinfo=UTC)
+            )
             if rev + timedelta(days=lc.review_cadence_days) < now:
                 due_for_review.append({**entry, "issue": "DUE_FOR_REVIEW"})
 
@@ -542,7 +563,11 @@ def cmd_expire_check(
     if fmt == "json":
         typer.echo(
             json.dumps(
-                {"expired": expired, "due_for_review": due_for_review, "expiring_soon": expiring_soon},
+                {
+                    "expired": expired,
+                    "due_for_review": due_for_review,
+                    "expiring_soon": expiring_soon,
+                },
                 indent=2,
             )
         )
@@ -565,7 +590,9 @@ def cmd_expire_check(
 @app.command("export-sigma-filter")
 def cmd_export_sigma_filter(
     path: Path = typer.Argument(..., help="DDR file with decision.kind == 'suppress'."),
-    output: Path | None = typer.Option(None, "--output", "-o", help="Write filter YAML here (default: stdout)."),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Write filter YAML here (default: stdout)."
+    ),
 ) -> None:
     """Emit a Sigma Filter YAML from a suppress DDR record (Sigma targets only)."""
     if not path.exists():
@@ -576,7 +603,7 @@ def cmd_export_sigma_filter(
         record = _load_record(path)
     except (ValidationError, ValueError) as exc:
         typer.echo(f"ERROR: {path}: {exc}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if not isinstance(record.target, SigmaTarget):
         typer.echo(
@@ -597,7 +624,7 @@ def cmd_export_sigma_filter(
         result = export_to_yaml(record, output=output)
     except Exception as exc:
         typer.echo(f"ERROR: {exc}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if output:
         typer.echo(f"Exported Sigma Filter to {output}")
@@ -608,9 +635,15 @@ def cmd_export_sigma_filter(
 @app.command("export-splunk")
 def cmd_export_splunk(
     path: Path = typer.Argument(..., help="DDR file with decision.kind == 'suppress'."),
-    output: Path | None = typer.Option(None, "--output", "-o", help="Write SPL here (default: stdout)."),
-    fmt: str = typer.Option("fragment", "--format", help="Output format: fragment | savedsearches."),
-    config: Path | None = typer.Option(None, "--config", help="Path to sigma-to-spl config YAML (Sigma targets only)."),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Write SPL here (default: stdout)."
+    ),
+    fmt: str = typer.Option(
+        "fragment", "--format", help="Output format: fragment | savedsearches."
+    ),
+    config: Path | None = typer.Option(
+        None, "--config", help="Path to sigma-to-spl config YAML (Sigma targets only)."
+    ),
 ) -> None:
     """Emit a SPL NOT clause from a suppress DDR record.
 
@@ -628,7 +661,7 @@ def cmd_export_splunk(
         record = _load_record(path)
     except (ValidationError, ValueError) as exc:
         typer.echo(f"ERROR: {path}: {exc}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if not isinstance(record.decision, SuppressDecision):
         typer.echo(
@@ -649,10 +682,10 @@ def cmd_export_splunk(
         result = export_to_spl(record, output=output, fmt=fmt, config=config)
     except RuntimeError as exc:
         typer.echo(f"ERROR: {exc}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     except Exception as exc:
         typer.echo(f"ERROR: {exc}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     if output:
         typer.echo(f"Exported SPL fragment to {output}")
@@ -664,7 +697,9 @@ def cmd_export_splunk(
 def cmd_refresh_hash(
     path: Path = typer.Argument(..., help="DDR file to update."),
     rule: Path | None = typer.Option(None, "--rule", "-r", help="Override Sigma rule file path."),
-    conf: Path | None = typer.Option(None, "--conf", help="Override savedsearches.conf path (Splunk targets)."),
+    conf: Path | None = typer.Option(
+        None, "--conf", help="Override savedsearches.conf path (Splunk targets)."
+    ),
 ) -> None:
     """Recompute content/query hash after a confirmed cosmetic-only change."""
     if not path.exists():
@@ -721,7 +756,11 @@ def _cmd_refresh_hash_splunk(
     writer: Any,
     conf_override: Path | None,
 ) -> None:
-    from ddr._internal.splunk_conf import compute_query_hash, extract_stanza, parse_savedsearches_conf
+    from ddr._internal.splunk_conf import (
+        compute_query_hash,
+        extract_stanza,
+        parse_savedsearches_conf,
+    )
 
     query_ref = data.get("target", {}).get("query_ref", {})
     stanza_name = query_ref.get("name", "")
@@ -736,7 +775,7 @@ def _cmd_refresh_hash_splunk(
     elif stored_path:
         if stored_path.startswith(("http://", "https://")):
             typer.echo(
-                "NOTE: path_or_url is a remote URL — use --conf to provide a local savedsearches.conf",
+                "NOTE: path_or_url is a remote URL — use --conf to provide a local savedsearches.conf",  # noqa: E501
                 err=True,
             )
             raise typer.Exit(1)
@@ -762,10 +801,10 @@ def _cmd_refresh_hash_splunk(
         stanza = extract_stanza(conf, stanza_name)
     except KeyError as exc:
         typer.echo(f"ERROR: {exc}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
     except Exception as exc:
         typer.echo(f"ERROR: failed to parse {conf_path}: {exc}", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(1) from exc
 
     search = stanza.get("search", "").strip()
     if not search:

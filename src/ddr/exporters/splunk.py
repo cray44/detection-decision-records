@@ -35,8 +35,8 @@ def _normalize_splunk_filter(splunk_filter: str) -> str:
 def _require_sigma_to_spl() -> None:
     try:
         import sigma_to_spl  # noqa: F401
-        from sigma.collection import SigmaCollection  # noqa: F401
         from sigma.backends.splunk import SplunkBackend  # noqa: F401
+        from sigma.collection import SigmaCollection  # noqa: F401
     except ImportError as exc:
         raise RuntimeError(
             f"sigma-to-spl is required for export-splunk on Sigma targets ({exc}). "
@@ -48,10 +48,10 @@ def _build_splunk_suppression_sigma(record: DDRRecord, config: Path | Any | None
     """Lower a Sigma-targeted suppress record to a SPL NOT clause."""
     _require_sigma_to_spl()
 
-    from sigma.collection import SigmaCollection
     from sigma.backends.splunk import SplunkBackend
-    from sigma_to_spl.postprocess import PostProcessor
+    from sigma.collection import SigmaCollection
     from sigma_to_spl.config import default_config, load_config
+    from sigma_to_spl.postprocess import PostProcessor
 
     dec = record.decision
     tuning: SigmaTuning = dec.tuning  # type: ignore[assignment]

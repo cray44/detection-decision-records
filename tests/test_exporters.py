@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from uuid import UUID
+from datetime import UTC, datetime
 
 import pytest
 
@@ -11,8 +10,8 @@ from ddr.exporters.sigma_filter import build_sigma_filter, export_to_yaml
 from ddr.models.record import DDRRecord
 
 _VALID_HASH = "sha256:" + "a" * 64
-_NOW = datetime(2025, 1, 15, 9, 0, 0, tzinfo=timezone.utc)
-_FUTURE = datetime(2026, 1, 15, 9, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2025, 1, 15, 9, 0, 0, tzinfo=UTC)
+_FUTURE = datetime(2026, 1, 15, 9, 0, 0, tzinfo=UTC)
 
 
 def _suppress_record_data(**overrides) -> dict:

@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from ddr._internal.hash_utils import compute_content_hash, verify_content_hash
 
 
 def test_compute_returns_sha256_prefix(sample_sigma_rule):
-    h = compute_content_rule = compute_content_hash(sample_sigma_rule)
+    h = compute_content_hash(sample_sigma_rule)
     assert h.startswith("sha256:")
     assert len(h) == len("sha256:") + 64
 

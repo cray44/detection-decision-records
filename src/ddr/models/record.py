@@ -7,45 +7,45 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 __all__ = [
-    "DDRRecord",
-    "SigmaTarget",
-    "SplunkTarget",
-    "SplunkQueryRef",
-    "Target",
-    "RuleRef",
-    "RuleSource",
-    "SuppressDecision",
     "AcceptRiskDecision",
-    "DeprecateDecision",
+    "DDRRecord",
     "Decision",
-    "SigmaTuning",
-    "SplunkTuning",
-    "Tuning",
-    "LogSource",
-    "Lifecycle",
-    "LifecycleStatus",
-    "RetirementReason",
-    "Provenance",
+    "DeprecateDecision",
     "Evidence",
     "EvidenceType",
+    "Lifecycle",
+    "LifecycleStatus",
+    "LogSource",
+    "Provenance",
+    "RetirementReason",
+    "RuleRef",
+    "RuleSource",
     "Scope",
+    "SigmaTarget",
+    "SigmaTuning",
+    "SplunkQueryRef",
+    "SplunkTarget",
+    "SplunkTuning",
+    "SuppressDecision",
+    "Target",
+    "Tuning",
 ]
 
 
-class RuleSource(str, Enum):
+class RuleSource(StrEnum):
     sigmahq = "sigmahq"
     internal = "internal"
     vendor = "vendor"
 
 
-class EvidenceType(str, Enum):
+class EvidenceType(StrEnum):
     splunk_query = "splunk_query"
     log_sample_uri = "log_sample_uri"
     ticket = "ticket"
@@ -55,13 +55,13 @@ class EvidenceType(str, Enum):
     other = "other"
 
 
-class LifecycleStatus(str, Enum):
+class LifecycleStatus(StrEnum):
     draft = "draft"
     active = "active"
     retired = "retired"
 
 
-class RetirementReason(str, Enum):
+class RetirementReason(StrEnum):
     rule_deprecated = "rule-deprecated"
     fp_source_removed = "fp-source-removed"
     replaced = "replaced"
@@ -101,8 +101,12 @@ class SplunkQueryRef(BaseModel):
 
     name: str = Field(..., description="savedsearches stanza name")
     app: str = Field(..., description="Splunk app context (e.g. 'search')")
-    query_hash: str | None = Field(default=None, description="sha256 of normalized SPL (optional in v0.3)")
-    path_or_url: str | None = Field(default=None, description="Link to source or savedsearches.conf path")
+    query_hash: str | None = Field(
+        default=None, description="sha256 of normalized SPL (optional in v0.3)"
+    )
+    path_or_url: str | None = Field(
+        default=None, description="Link to source or savedsearches.conf path"
+    )
 
     @field_validator("query_hash")
     @classmethod
@@ -154,7 +158,7 @@ class Lifecycle(BaseModel):
     retirement_reason: RetirementReason | None = None
 
     @model_validator(mode="after")
-    def check_constraints(self) -> "Lifecycle":
+    def check_constraints(self) -> Lifecycle:
         if self.status == LifecycleStatus.active and self.expires_on is None:
             raise ValueError("expires_on is required when status is 'active'")
         if self.status == LifecycleStatus.retired and self.retired_on is None:
@@ -174,7 +178,7 @@ class LogSource(BaseModel):
     service: str | None = None
 
     @model_validator(mode="after")
-    def at_least_one(self) -> "LogSource":
+    def at_least_one(self) -> LogSource:
         if not any([self.category, self.product, self.service]):
             raise ValueError("logsource must specify at least one of category, product, or service")
         return self
@@ -189,7 +193,9 @@ class SigmaTuning(BaseModel):
     filter_title: str | None = None
     filter_description: str | None = None
     logsource: LogSource
-    selections: dict[str, Any] = Field(..., description="Named selection blocks mirroring Sigma filter: blocks")
+    selections: dict[str, Any] = Field(
+        ..., description="Named selection blocks mirroring Sigma filter: blocks"
+    )
     condition: str = Field(..., description="Sigma filter condition string")
 
     @field_validator("selections")
@@ -212,7 +218,9 @@ class SplunkTuning(BaseModel):
     kind: Literal["splunk"] = "splunk"
     filter_title: str | None = None
     filter_description: str | None = None
-    splunk_filter: str = Field(..., description="Raw SPL filter clause (FP condition written directly)")
+    splunk_filter: str = Field(
+        ..., description="Raw SPL filter clause (FP condition written directly)"
+    )
 
     @field_validator("splunk_filter")
     @classmethod
@@ -299,10 +307,13 @@ class DDRRecord(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def target_tuning_kind_match(self) -> "DDRRecord":
-        if isinstance(self.decision, SuppressDecision):
-            if self.target.kind != self.decision.tuning.kind:
+    def target_tuning_kind_match(self) -> DDRRecord:
+        if (
+            isinstance(self.decision, SuppressDecision)
+            and self.target.kind != self.decision.tuning.kind
+        ):
                 raise ValueError(
-                    f"tuning.kind '{self.decision.tuning.kind}' must match target.kind '{self.target.kind}'"
+                    f"tuning.kind '{self.decision.tuning.kind}' must match "
+                    f"target.kind '{self.target.kind}'"
                 )
         return self
