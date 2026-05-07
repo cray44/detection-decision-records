@@ -36,15 +36,19 @@ def build_sigma_filter(record: DDRRecord) -> dict[str, Any]:
     if ls.service:
         logsource["service"] = ls.service
 
+    # pySigma SigmaGlobalFilter expects condition and rules inside the filter block,
+    # not at the top level of the document.
+    filter_block: dict[str, Any] = dict(dec.tuning.selections)
+    filter_block["condition"] = dec.tuning.condition
+    filter_block["rules"] = [str(record.target.rule_ref.rule_id)]
+
     return {
         "title": dec.tuning.filter_title or f"FP Filter: {record.title}",
         "name": f"filter_{record.id.hex[:8]}",
         "status": "experimental",
         "description": dec.tuning.filter_description or record.description,
         "logsource": logsource,
-        "rules": [str(record.target.rule_ref.rule_id)],
-        "filter": dict(dec.tuning.selections),
-        "condition": dec.tuning.condition,
+        "filter": filter_block,
     }
 
 

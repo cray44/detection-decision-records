@@ -6,11 +6,11 @@ logsource:
   category: network_connection
   product: zeek
   service: conn
-rules:
-- 2a68a9a2-5fc8-4bf2-b5b8-b76c0aedc2f4
 filter:
   known_fp_nessus:
     id.orig_h:
     - 10.10.5.20
     - 10.10.5.21
-condition: not known_fp_nessus
+  condition: not known_fp_nessus
+  rules:
+  - 2a68a9a2-5fc8-4bf2-b5b8-b76c0aedc2f4

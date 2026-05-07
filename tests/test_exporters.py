@@ -57,11 +57,14 @@ def test_build_sigma_filter_structure():
     sigma_filter = build_sigma_filter(record)
 
     assert sigma_filter["status"] == "experimental"
-    assert "d7a95147-145f-4678-b555-b7a3c9b16830" in sigma_filter["rules"]
     assert sigma_filter["logsource"]["category"] == "process_creation"
     assert sigma_filter["logsource"]["product"] == "windows"
+    # condition and rules live inside filter block (pySigma SigmaGlobalFilter requirement)
     assert "known_fp_sccm" in sigma_filter["filter"]
-    assert sigma_filter["condition"] == "not known_fp_sccm"
+    assert sigma_filter["filter"]["condition"] == "not known_fp_sccm"
+    assert "d7a95147-145f-4678-b555-b7a3c9b16830" in sigma_filter["filter"]["rules"]
+    assert "rules" not in sigma_filter
+    assert "condition" not in sigma_filter
 
 
 def test_build_sigma_filter_title_fallback():
@@ -119,3 +122,13 @@ def test_export_logsource_service_only():
     sigma_filter = build_sigma_filter(record)
     assert sigma_filter["logsource"] == {"service": "syslog"}
     assert "category" not in sigma_filter["logsource"]
+
+
+def test_export_sigma_filter_parses_with_pysigma():
+    """Round-trip: exported filter must parse cleanly via pySigma SigmaFilter."""
+    from sigma.filters import SigmaFilter
+
+    record = DDRRecord.model_validate(_suppress_record_data())
+    sigma_filter = build_sigma_filter(record)
+    parsed = SigmaFilter.from_dict(sigma_filter)
+    assert parsed is not None

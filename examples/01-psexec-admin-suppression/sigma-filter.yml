@@ -5,11 +5,11 @@ description: "Suppresses PsExec invocations where the parent is a known SCCM com
 logsource:
   category: process_creation
   product: windows
-rules:
-- 4a6a3b37-1bef-4741-ae2d-c34cca8c8e77
 filter:
   known_fp_sccm_agent:
     ParentImage|endswith:
     - \CCM\ccmexec.exe
     - \SMS\Bin\ccmsetup.exe
-condition: not known_fp_sccm_agent
+  condition: not known_fp_sccm_agent
+  rules:
+  - 4a6a3b37-1bef-4741-ae2d-c34cca8c8e77
