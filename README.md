@@ -80,7 +80,7 @@ record = DDRRecord.model_validate(yaml.safe_load(open("my_suppression.yml")))
 | `sigma` | A Sigma rule exists | `content_hash` (SHA-256 of canonicalized YAML) |
 | `splunk` | Detection lives only in Splunk — no Sigma rule | `query_hash` (SHA-256 of canonicalized SPL) |
 
-Splunk targets work with sigma-to-spl **not** installed.
+Splunk-native targets have no dependency on sigma-to-spl.
 
 ## Version history
 
