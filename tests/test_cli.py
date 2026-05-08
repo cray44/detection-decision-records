@@ -222,6 +222,20 @@ detection:
     assert "d7a95147-145f-4678-b555-b7a3c9b16831" in result.output
 
 
+def test_new_sigma_suppress_scaffold_includes_filter_title(tmp_path):
+    """ddr new sigma suppress scaffold must include filter_title to avoid double-prefix."""
+    rule = tmp_path / "rule.yml"
+    rule.write_text(
+        "title: DNS Tunneling\nid: d7a95147-145f-4678-b555-b7a3c9b16833\n"
+        "logsource:\n  category: dns\ndetection:\n  selection:\n"
+        "    field: v\n  condition: selection\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["new", str(rule)])
+    assert result.exit_code == 0
+    assert "filter_title" in result.output
+
+
 def test_new_sigma_path_or_url_not_absolute(tmp_path):
     """path_or_url must preserve the caller-supplied path, not resolve to absolute."""
     rule = tmp_path / "test_rule.yml"
