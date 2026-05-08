@@ -222,6 +222,24 @@ detection:
     assert "d7a95147-145f-4678-b555-b7a3c9b16831" in result.output
 
 
+def test_new_sigma_path_or_url_not_absolute(tmp_path):
+    """path_or_url must preserve the caller-supplied path, not resolve to absolute."""
+    rule = tmp_path / "test_rule.yml"
+    rule.write_text(
+        "title: T\nid: d7a95147-145f-4678-b555-b7a3c9b16832\n"
+        "logsource:\n  product: windows\ndetection:\n  selection:\n"
+        "    field: v\n  condition: selection\n",
+        encoding="utf-8",
+    )
+    # Pass a relative path — scaffold must echo it back as-is
+    import os
+
+    rel = os.path.relpath(rule)
+    result = runner.invoke(app, ["new", rel])
+    assert result.exit_code == 0
+    assert rel in result.output
+
+
 def test_new_to_output_file(tmp_path):
     rule = tmp_path / "rule.yml"
     rule.write_text(
