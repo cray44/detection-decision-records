@@ -160,8 +160,6 @@ class Lifecycle(BaseModel):
 
     @model_validator(mode="after")
     def check_constraints(self) -> Lifecycle:
-        if self.status == LifecycleStatus.active and self.expires_on is None:
-            raise ValueError("expires_on is required when status is 'active'")
         if self.status == LifecycleStatus.retired and self.retired_on is None:
             raise ValueError("retired_on is required when status is 'retired'")
         if self.superseded_by is not None and self.status != LifecycleStatus.retired:
@@ -308,13 +306,19 @@ class DDRRecord(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def target_tuning_kind_match(self) -> DDRRecord:
+    def check_record_constraints(self) -> DDRRecord:
+        if (
+            self.lifecycle.status == LifecycleStatus.active
+            and self.lifecycle.expires_on is None
+            and not isinstance(self.decision, DeprecateDecision)
+        ):
+            raise ValueError("expires_on is required when status is 'active'")
         if (
             isinstance(self.decision, SuppressDecision)
             and self.target.kind != self.decision.tuning.kind
         ):
-                raise ValueError(
-                    f"tuning.kind '{self.decision.tuning.kind}' must match "
-                    f"target.kind '{self.target.kind}'"
-                )
+            raise ValueError(
+                f"tuning.kind '{self.decision.tuning.kind}' must match "
+                f"target.kind '{self.target.kind}'"
+            )
         return self
