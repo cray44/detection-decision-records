@@ -18,6 +18,9 @@ __all__ = [
     "DDRRecord",
     "Decision",
     "DeprecateDecision",
+    "ElasticQueryRef",
+    "ElasticTarget",
+    "ElasticTuning",
     "Evidence",
     "EvidenceType",
     "Lifecycle",
@@ -144,7 +147,32 @@ class SplunkTarget(BaseModel):
         return {k: v for k, v in data.items() if k != "query_ref"}
 
 
-Target = Annotated[SigmaTarget | SplunkTarget, Field(discriminator="kind")]
+class ElasticQueryRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str = Field(..., description="Elastic detection rule ID")
+    name: str = Field(..., description="Elastic rule display name")
+    index_pattern: str = Field(..., description="e.g. 'logs-endpoint.events.process-*'")
+    content_hash: str | None = Field(default=None, description="sha256 of canonicalized rule JSON")
+    path_or_url: str | None = None
+    source: RuleSource
+
+    @field_validator("content_hash")
+    @classmethod
+    def validate_hash_format(cls, v: str | None) -> str | None:
+        if v is not None and not _CONTENT_HASH_RE.match(v):
+            raise ValueError("content_hash must be 'sha256:<64 lowercase hex chars>'")
+        return v
+
+
+class ElasticTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["elastic"] = "elastic"
+    query_refs: list[ElasticQueryRef] = Field(..., min_length=1)
+
+
+Target = Annotated[SigmaTarget | SplunkTarget | ElasticTarget, Field(discriminator="kind")]
 
 
 class Evidence(BaseModel):
@@ -249,7 +277,25 @@ class SplunkTuning(BaseModel):
         return v
 
 
-TuningUnion = Annotated[SigmaTuning | SplunkTuning, Field(discriminator="kind")]
+class ElasticTuning(BaseModel):
+    """Native KQL FP filter for Elastic Security detection rules."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["elastic"] = "elastic"
+    filter_title: str | None = None
+    filter_description: str | None = None
+    kql_filter: str = Field(..., description="Raw KQL filter clause (FP condition)")
+
+    @field_validator("kql_filter")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("kql_filter must not be empty or whitespace")
+        return v
+
+
+TuningUnion = Annotated[SigmaTuning | SplunkTuning | ElasticTuning, Field(discriminator="kind")]
 
 
 class SuppressDecision(BaseModel):
@@ -301,7 +347,7 @@ class DDRRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ddr_version: Annotated[str, Field(pattern=r"^0\.[12345]$")]
+    ddr_version: Annotated[str, Field(pattern=r"^0\.[123456]$")]
     id: UUID
     target: Target
     title: str

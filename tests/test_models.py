@@ -12,6 +12,9 @@ from ddr.models.record import (
     AcceptRiskDecision,
     DDRRecord,
     DeprecateDecision,
+    ElasticQueryRef,
+    ElasticTarget,
+    ElasticTuning,
     Evidence,
     EvidenceType,
     Lifecycle,
@@ -586,3 +589,220 @@ def test_ddr_version_05_accepted():
     data = _suppress_record(ddr_version="0.5")
     record = DDRRecord.model_validate(data)
     assert record.ddr_version == "0.5"
+
+
+# --- v0.6: ElasticQueryRef ---
+
+
+def _elastic_query_ref(**kwargs) -> dict:
+    return {
+        "rule_id": "96b9fc2a-cbd5-4a3e-b7d7-3d9d6a6e8d5c",
+        "name": "Windows Defender AV Threats",
+        "index_pattern": "logs-endpoint.events.process-*",
+        "source": "internal",
+        **kwargs,
+    }
+
+
+def test_elastic_query_ref_valid():
+    ref = ElasticQueryRef.model_validate(_elastic_query_ref())
+    assert ref.rule_id == "96b9fc2a-cbd5-4a3e-b7d7-3d9d6a6e8d5c"
+    assert ref.index_pattern == "logs-endpoint.events.process-*"
+    assert ref.content_hash is None
+    assert ref.path_or_url is None
+
+
+def test_elastic_query_ref_with_hash():
+    ref = ElasticQueryRef.model_validate(_elastic_query_ref(content_hash="sha256:" + "c" * 64))
+    assert ref.content_hash == "sha256:" + "c" * 64
+
+
+def test_elastic_query_ref_invalid_hash():
+    with pytest.raises(ValidationError, match="content_hash"):
+        ElasticQueryRef.model_validate(_elastic_query_ref(content_hash="not-a-hash"))
+
+
+def test_elastic_query_ref_extra_field_rejected():
+    with pytest.raises(ValidationError):
+        ElasticQueryRef.model_validate(_elastic_query_ref(unknown="bad"))
+
+
+def test_elastic_query_ref_rule_id_accepts_no_hyphens():
+    """Elastic rule IDs without hyphens are accepted (str field, not UUID)."""
+    no_hyphen = "96b9fc2acbd54a3eb7d73d9d6a6e8d5c"
+    ref = ElasticQueryRef.model_validate(_elastic_query_ref(rule_id=no_hyphen))
+    assert ref.rule_id == no_hyphen
+
+
+# --- v0.6: ElasticTarget ---
+
+
+def test_elastic_target_single_ref():
+    t = ElasticTarget.model_validate(
+        {"kind": "elastic", "query_refs": [_elastic_query_ref()]}
+    )
+    assert t.kind == "elastic"
+    assert len(t.query_refs) == 1
+
+
+def test_elastic_target_multi_ref():
+    t = ElasticTarget.model_validate(
+        {
+            "kind": "elastic",
+            "query_refs": [
+                _elastic_query_ref(rule_id="rule-1", name="Rule 1"),
+                _elastic_query_ref(rule_id="rule-2", name="Rule 2"),
+                _elastic_query_ref(rule_id="rule-3", name="Rule 3"),
+            ],
+        }
+    )
+    assert len(t.query_refs) == 3
+
+
+def test_elastic_target_empty_query_refs_rejected():
+    with pytest.raises(ValidationError):
+        ElasticTarget.model_validate({"kind": "elastic", "query_refs": []})
+
+
+def test_elastic_target_extra_field_rejected():
+    with pytest.raises(ValidationError):
+        ElasticTarget.model_validate(
+            {"kind": "elastic", "query_refs": [_elastic_query_ref()], "bad": "field"}
+        )
+
+
+# --- v0.6: ElasticTuning ---
+
+
+def test_elastic_tuning_valid():
+    t = ElasticTuning.model_validate(
+        {"kind": "elastic", "kql_filter": 'source.ip : "10.0.100.0/24"'}
+    )
+    assert t.kql_filter == 'source.ip : "10.0.100.0/24"'
+
+
+def test_elastic_tuning_blank_filter_rejected():
+    with pytest.raises(ValidationError, match="kql_filter"):
+        ElasticTuning.model_validate({"kind": "elastic", "kql_filter": "   "})
+
+
+def test_elastic_tuning_empty_filter_rejected():
+    with pytest.raises(ValidationError, match="kql_filter"):
+        ElasticTuning.model_validate({"kind": "elastic", "kql_filter": ""})
+
+
+def test_elastic_tuning_optional_title():
+    t = ElasticTuning.model_validate(
+        {
+            "kind": "elastic",
+            "kql_filter": 'agent.name : "nessus*"',
+            "filter_title": "Suppress Nessus",
+            "filter_description": "Scanner FP suppression.",
+        }
+    )
+    assert t.filter_title == "Suppress Nessus"
+
+
+def test_elastic_tuning_extra_field_rejected():
+    with pytest.raises(ValidationError):
+        ElasticTuning.model_validate(
+            {"kind": "elastic", "kql_filter": "host=foo", "bad": "field"}
+        )
+
+
+# --- v0.6: DDRRecord with Elastic target ---
+
+
+def _elastic_suppress_record(**overrides) -> dict:
+    base = {
+        "ddr_version": "0.6",
+        "id": str(_DDR_ID),
+        "title": "Suppress: Elastic AV scanner noise",
+        "description": "Nessus scanner FP.",
+        "target": {
+            "kind": "elastic",
+            "query_refs": [_elastic_query_ref()],
+        },
+        "decision": {
+            "kind": "suppress",
+            "rationale": "Scanner FP confirmed.",
+            "tuning": {
+                "kind": "elastic",
+                "kql_filter": 'source.ip : "10.0.100.0/24"',
+            },
+        },
+        "lifecycle": {
+            "status": "active",
+            "created_on": _NOW.isoformat(),
+            "activated_on": _NOW.isoformat(),
+            "expires_on": _FUTURE.isoformat(),
+        },
+        "provenance": {"author": "alice@example.com"},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_ddr_record_elastic_target_suppress():
+    record = DDRRecord.model_validate(_elastic_suppress_record())
+    assert isinstance(record.target, ElasticTarget)
+    assert record.target.kind == "elastic"
+    assert len(record.target.query_refs) == 1
+    assert isinstance(record.decision.tuning, ElasticTuning)  # type: ignore[union-attr]
+
+
+def test_ddr_record_elastic_target_accept_risk():
+    data = _elastic_suppress_record()
+    data["decision"] = {"kind": "accept-risk", "rationale": "Accepted."}
+    record = DDRRecord.model_validate(data)
+    assert isinstance(record.target, ElasticTarget)
+
+
+def test_ddr_record_elastic_target_deprecate():
+    data = _elastic_suppress_record()
+    data["lifecycle"] = {
+        "status": "retired",
+        "created_on": _NOW.isoformat(),
+        "retired_on": _NOW.isoformat(),
+        "retirement_reason": "replaced",
+    }
+    data["decision"] = {"kind": "deprecate", "rationale": "Retired."}
+    record = DDRRecord.model_validate(data)
+    assert isinstance(record.target, ElasticTarget)
+
+
+def test_ddr_record_elastic_cross_field_mismatch_splunk_tuning():
+    data = _elastic_suppress_record()
+    data["decision"]["tuning"] = {"kind": "splunk", "splunk_filter": "host=foo"}
+    with pytest.raises(ValidationError, match=r"tuning\.kind"):
+        DDRRecord.model_validate(data)
+
+
+def test_ddr_record_elastic_cross_field_mismatch_sigma_tuning():
+    data = _elastic_suppress_record()
+    data["decision"]["tuning"] = {
+        "kind": "sigma",
+        "logsource": {"product": "windows"},
+        "selections": {"fp": {"host": "foo"}},
+        "condition": "not fp",
+    }
+    with pytest.raises(ValidationError, match=r"tuning\.kind"):
+        DDRRecord.model_validate(data)
+
+
+def test_ddr_version_06_accepted():
+    data = _elastic_suppress_record(ddr_version="0.6")
+    record = DDRRecord.model_validate(data)
+    assert record.ddr_version == "0.6"
+
+
+def test_ddr_record_elastic_fixture(valid_fixtures_dir):
+    """elastic_suppress.yml fixture validates cleanly."""
+    raw = (
+        __import__("ruamel.yaml", fromlist=["YAML"])
+        .YAML(typ="safe")
+        .load((valid_fixtures_dir / "elastic_suppress.yml").read_text())
+    )
+    record = DDRRecord.model_validate(raw)
+    assert record.target.kind == "elastic"
+    assert len(record.target.query_refs) == 2  # type: ignore[union-attr]

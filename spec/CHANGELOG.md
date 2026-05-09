@@ -1,5 +1,33 @@
 # DDR Spec Changelog
 
+## [0.6.0] — 2026-05-08
+
+Additive schema change. All v0.1, v0.2, v0.3, v0.4, and v0.5 records validate unchanged.
+
+### Added
+- `ddr_version` pattern updated to `^0\.[123456]$`; records with `"0.1"`–`"0.5"` remain valid.
+- **Elastic target**: `target.kind: "elastic"` — new `ElasticTarget` with `query_refs: list[ElasticQueryRef]`
+  (min length 1, plural shape inherited from v0.5 from day one — no coercion shim needed).
+- **`ElasticQueryRef`**: `rule_id` (string), `name`, `index_pattern`, optional `content_hash`, optional
+  `path_or_url`, `source`.
+- **`ElasticTuning`**: `kind: "elastic"`, `kql_filter` (raw KQL filter clause, required non-empty),
+  optional `filter_title`, optional `filter_description`.
+- **Elastic canonicalization algorithm v1** (`spec/ddr-v0.6.md §3`): load NDJSON → unwrap `rule` key →
+  strip volatile fields (`revision`, `version`, `created_at`, `updated_at`, `created_by`, `updated_by`,
+  `id`, `immutable`, `related_integrations`, `required_fields`, `setup`) → sort keys → compact JSON →
+  SHA-256 → `sha256:` prefix.
+- **`ddr export-elastic-exception`**: emits Kibana 8.x-importable exception list NDJSON. Simple AND-chains
+  of `field : "value"` / `field : wildcard*` conditions → structured `entries[]`. Complex KQL → MANUAL
+  warning + raw KQL preserved in `description`.
+- **`ddr new --target elastic`**: NDJSON inference from `.ndjson` extension; extracts `rule_id` and `name`.
+- **`ddr refresh-hash`** (Elastic branch): iterates `query_refs`, applies algorithm v1, prints per-ref.
+- **`ddr validate --strict`** (Elastic drift check): warns per-ref on hash drift; warns on ref count > 10.
+
+### Back-compat notes
+- v0.1–v0.5 records using `target.kind: "sigma"` or `"splunk"` continue to parse without modification.
+- `export-sigma-filter` exits 1 on Elastic targets (same behavior as Splunk targets).
+- `export-splunk` exits 1 on Elastic targets (no Splunk export path for Elastic rules).
+
 ## [0.5.0] — 2026-05-08
 
 Additive schema change. All v0.1, v0.2, v0.3, and v0.4 records validate unchanged.

@@ -1,0 +1,39 @@
+ddr_version: "0.6"
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+title: "Suppress: Windows Defender AV threats from Nessus scanner"
+description: >
+  Nessus vulnerability scanner on 10.0.100.0/24 triggers Windows Defender AV
+  threat events during active scan windows. All events confirm scanner traffic.
+target:
+  kind: elastic
+  query_refs:
+    - rule_id: "96b9fc2a-cbd5-4a3e-b7d7-3d9d6a6e8d5c"
+      name: "Windows Defender Antivirus Threats Detected"
+      index_pattern: "logs-endpoint.events.process-*"
+      content_hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      source: internal
+      path_or_url: "rules/elastic/windows-defender-av-threats.ndjson"
+    - rule_id: "b5f2e1c8-3a4d-4f6e-9b8c-7d2e1f3a5b4c"
+      name: "Windows Defender AV Scan Result"
+      index_pattern: "logs-endpoint.events.process-*"
+      content_hash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      source: internal
+      path_or_url: "rules/elastic/windows-defender-av-scan.ndjson"
+decision:
+  kind: suppress
+  rationale: >
+    Nessus scanner on 10.0.100.0/24 triggers Defender AV threat events during
+    active scan windows. Scanner traffic confirmed via DHCP and DNS records.
+  tuning:
+    kind: elastic
+    filter_title: "Suppress Nessus scanner AV alerts"
+    kql_filter: 'source.ip : "10.0.100.0/24"'
+lifecycle:
+  status: active
+  created_on: "2026-05-08T00:00:00Z"
+  activated_on: "2026-05-08T00:00:00Z"
+  expires_on: "2027-05-08T00:00:00Z"
+provenance:
+  author: "chris@example.com"
+  ticket_refs:
+    - "DETECT-456"

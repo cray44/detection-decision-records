@@ -8,7 +8,7 @@ from pathlib import Path
 from ddr.models.record import DDRRecord
 
 _SPEC_DIR = Path(__file__).parent.parent.parent.parent / "spec"
-SCHEMA_PATH = _SPEC_DIR / "ddr-v0.5.schema.json"
+SCHEMA_PATH = _SPEC_DIR / "ddr-v0.6.schema.json"
 
 
 def generate_schema() -> dict:

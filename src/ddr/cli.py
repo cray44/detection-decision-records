@@ -18,6 +18,7 @@ from ddr._internal.hash_utils import compute_content_hash
 from ddr.exporters.sigma_filter import export_to_yaml
 from ddr.models.record import (
     DDRRecord,
+    ElasticTarget,
     LifecycleStatus,
     SigmaTarget,
     SplunkTarget,
@@ -91,7 +92,9 @@ def cmd_new(
     decision_kind: str = typer.Option(
         "suppress", "--decision", "-d", help="Decision type: suppress | accept-risk | deprecate."
     ),
-    target_kind: str = typer.Option("sigma", "--target", "-t", help="Target kind: sigma | splunk."),
+    target_kind: str = typer.Option(
+        "sigma", "--target", "-t", help="Target kind: sigma | splunk | elastic."
+    ),
     splunk_name: str | None = typer.Option(
         None, "--name", help="Splunk savedsearch stanza name (--target splunk)."
     ),
@@ -101,14 +104,26 @@ def cmd_new(
         help="Splunk app context (default: search; overridden by path inference).",
     ),
 ) -> None:
-    """Scaffold a DDR from a Sigma rule or savedsearches.conf."""
-    if target_kind not in ("sigma", "splunk"):
-        typer.echo("ERROR: --target must be sigma | splunk", err=True)
+    """Scaffold a DDR from a Sigma rule, savedsearches.conf, or Elastic rule NDJSON."""
+    # Infer --target elastic when a .ndjson file is provided
+    if sigma_rule is not None and sigma_rule.suffix.lower() == ".ndjson":
+        target_kind = "elastic"
+
+    if target_kind not in ("sigma", "splunk", "elastic"):
+        typer.echo("ERROR: --target must be sigma | splunk | elastic", err=True)
         raise typer.Exit(1)
 
     if decision_kind not in ("suppress", "accept-risk", "deprecate"):
         typer.echo("ERROR: --decision must be suppress | accept-risk | deprecate", err=True)
         raise typer.Exit(1)
+
+    if target_kind == "elastic":
+        _cmd_new_elastic(
+            ndjson_path=sigma_rule,
+            output=output,
+            decision_kind=decision_kind,
+        )
+        return
 
     if target_kind == "splunk":
         if sigma_rule is not None:
@@ -152,7 +167,7 @@ def cmd_new(
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.5",
+            "ddr_version": "0.6",
             "id": str(uuid4()),
             "title": f"Suppress: {rule_title}" if decision_kind == "suppress" else rule_title,
             "description": "",
@@ -182,6 +197,100 @@ def cmd_new(
     _write_scaffold(scaffold, output)
 
 
+def _cmd_new_elastic(
+    ndjson_path: Path | None,
+    output: Path | None,
+    decision_kind: str,
+) -> None:
+    """Scaffold a DDR for an Elastic Security detection rule."""
+    rule_id = "TODO-FILL-IN-ELASTIC-RULE-UUID"
+    rule_name = "TODO: rule name"
+    index_pattern = "TODO: e.g. logs-endpoint.events.process-*"
+    path_or_url_val: str | None = None
+
+    if ndjson_path is not None:
+        if not ndjson_path.exists():
+            typer.echo(f"ERROR: {ndjson_path} not found", err=True)
+            raise typer.Exit(1)
+
+        try:
+            import json as _json
+
+            text = ndjson_path.read_text(encoding="utf-8-sig")
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                if not isinstance(obj, dict):
+                    continue
+                rule_obj = obj.get("rule", obj)
+                rule_id = rule_obj.get("rule_id") or rule_obj.get("id") or rule_id
+                rule_name = rule_obj.get("name") or rule_name
+                break
+        except Exception:
+            pass  # fall back to placeholders
+
+        path_or_url_val = str(ndjson_path)
+
+    scaffold = _strip_none(
+        {
+            "ddr_version": "0.6",
+            "id": str(uuid4()),
+            "title": f"Suppress: {rule_name}" if decision_kind == "suppress" else rule_name,
+            "description": "TODO: describe this detection and why tuning is needed.",
+            "target": {
+                "kind": "elastic",
+                "query_refs": [
+                    {
+                        "rule_id": rule_id,
+                        "name": rule_name,
+                        "index_pattern": index_pattern,
+                        "source": "internal",
+                        "path_or_url": path_or_url_val,
+                    }
+                ],
+            },
+            "decision": _build_elastic_decision_scaffold(decision_kind),
+            "lifecycle": {
+                "status": "draft",
+                "created_on": _now_utc(),
+            },
+            "provenance": {
+                "author": "",
+                "ticket_refs": [],
+            },
+        }
+    )
+
+    _write_scaffold(scaffold, output)
+
+
+def _build_elastic_decision_scaffold(kind: str) -> dict:
+    if kind == "suppress":
+        return {
+            "kind": "suppress",
+            "rationale": "TODO: explain why this is an acceptable false positive",
+            "tuning": {
+                "kind": "elastic",
+                "filter_title": "TODO: descriptive filter name",
+                "kql_filter": 'TODO: KQL filter clause, e.g. source.ip : "10.0.100.0/24"',
+            },
+        }
+    if kind == "accept-risk":
+        return {
+            "kind": "accept-risk",
+            "rationale": "TODO: explain why you are accepting this risk",
+        }
+    return {
+        "kind": "deprecate",
+        "rationale": "TODO: explain why this rule is being deprecated",
+    }
+
+
 def _cmd_new_splunk(
     output: Path | None,
     decision_kind: str,
@@ -198,7 +307,7 @@ def _cmd_new_splunk(
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.5",
+            "ddr_version": "0.6",
             "id": str(uuid4()),
             "title": f"TODO: title for {splunk_name}",
             "description": "TODO: describe this detection and why tuning is needed.",
@@ -297,7 +406,7 @@ def _cmd_new_splunk_from_conf(
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.5",
+            "ddr_version": "0.6",
             "id": str(uuid4()),
             "title": f"TODO: title for {name}",
             "description": "TODO: describe this detection and why tuning is needed.",
@@ -548,6 +657,7 @@ def cmd_validate(
             if strict:
                 _strict_lint(fp, record)
                 _strict_splunk_drift_check(fp, record)
+                _strict_elastic_drift_check(fp, record)
 
         except ValidationError as exc:
             failed += 1
@@ -586,7 +696,7 @@ def _strict_lint(fp: Path, record: DDRRecord) -> None:
         len(record.target.rule_refs)
         if isinstance(record.target, SigmaTarget)
         else len(record.target.query_refs)
-        if isinstance(record.target, SplunkTarget)
+        if isinstance(record.target, (SplunkTarget, ElasticTarget))
         else 0
     )
     if refs_count > 10:
@@ -635,6 +745,43 @@ def _strict_splunk_drift_check(fp: Path, record: DDRRecord) -> None:
             if current_hash != qref.query_hash:
                 typer.echo(
                     f"  WARN  {fp} {ref_label}: query_hash drift"
+                    f" — run 'ddr refresh-hash {fp}' to update",
+                    err=True,
+                )
+        except Exception:
+            pass
+
+
+def _strict_elastic_drift_check(fp: Path, record: DDRRecord) -> None:
+    """Warn if content_hash in an Elastic-target DDR doesn't match the local NDJSON."""
+    if not isinstance(record.target, ElasticTarget):
+        return
+
+    for idx, qref in enumerate(record.target.query_refs):
+        ref_label = f"query_refs[{idx}]"
+        if not qref.content_hash or not qref.path_or_url:
+            continue
+        if qref.path_or_url.startswith(("http://", "https://")):
+            typer.echo(
+                f"  NOTE  {fp} {ref_label}: content_hash drift cannot be verified"
+                " for remote path_or_url",
+                err=True,
+            )
+            continue
+
+        ndjson_path = Path(qref.path_or_url)
+        if not ndjson_path.is_absolute():
+            ndjson_path = fp.parent / ndjson_path
+        if not ndjson_path.exists():
+            continue
+
+        try:
+            from ddr._internal.elastic_hash import compute_elastic_hash
+
+            current_hash = compute_elastic_hash(ndjson_path)
+            if current_hash != qref.content_hash:
+                typer.echo(
+                    f"  WARN  {fp} {ref_label}: content_hash drift"
                     f" — run 'ddr refresh-hash {fp}' to update",
                     err=True,
                 )
@@ -865,6 +1012,10 @@ def cmd_refresh_hash(
         _cmd_refresh_hash_splunk(path, data, writer, conf)
         return
 
+    if target_kind == "elastic":
+        _cmd_refresh_hash_elastic(path, data, writer, rule)
+        return
+
     # --- sigma path ---
     # Normalise: handle both legacy rule_ref (singular) and new rule_refs (list)
     target_data = data.get("target", {})
@@ -1025,6 +1176,133 @@ def _cmd_refresh_hash_splunk(
         writer.dump(data, fh)
 
     typer.echo(f"Updated {ddr_path}")
+
+
+def _cmd_refresh_hash_elastic(
+    ddr_path: Path,
+    data: dict,
+    writer: Any,
+    rule_override: Path | None,
+) -> None:
+    from ddr._internal.elastic_hash import compute_elastic_hash
+
+    target_data = data.get("target", {})
+    raw_refs: list[dict] = target_data.get("query_refs", [])
+
+    if rule_override and len(raw_refs) > 1:
+        typer.echo(
+            "ERROR: --rule override cannot be used with multi-ref targets; "
+            "edit path_or_url in each ref directly.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    any_changed = False
+
+    for i, qref in enumerate(raw_refs):
+        ref_label = f"query_refs[{i}]" if len(raw_refs) > 1 else "query_refs[0]"
+        stored_path = qref.get("path_or_url", "")
+
+        if rule_override:
+            ndjson_path = rule_override
+        elif stored_path:
+            if stored_path.startswith(("http://", "https://")):
+                typer.echo(
+                    f"  {ref_label}: skipping remote ref — update content_hash manually",
+                    err=True,
+                )
+                continue
+            ndjson_path = Path(stored_path)
+            if not ndjson_path.is_absolute():
+                ndjson_path = ddr_path.parent / ndjson_path
+        else:
+            typer.echo(f"  {ref_label}: no path_or_url set; skipping", err=True)
+            continue
+
+        if not ndjson_path.exists():
+            typer.echo(f"  {ref_label}: rule file not found at '{ndjson_path}'", err=True)
+            continue
+
+        try:
+            new_hash = compute_elastic_hash(ndjson_path)
+        except Exception as exc:
+            typer.echo(f"  {ref_label}: failed to compute hash: {exc}", err=True)
+            continue
+
+        old_hash = qref.get("content_hash", "")
+        if old_hash == new_hash:
+            typer.echo(f"  {ref_label}: hash unchanged: {new_hash}")
+        else:
+            qref["content_hash"] = new_hash
+            any_changed = True
+            typer.echo(f"  {ref_label}: old: {old_hash or '(none)'}")
+            typer.echo(f"  {ref_label}: new: {new_hash}")
+
+    if not any_changed:
+        return
+
+    data["target"]["query_refs"] = raw_refs
+    with open(ddr_path, "w", encoding="utf-8") as fh:
+        writer.dump(data, fh)
+    typer.echo(f"Updated {ddr_path}")
+
+
+@app.command("export-elastic-exception")
+def cmd_export_elastic_exception(
+    path: Path = typer.Argument(..., help="DDR file with decision.kind == 'suppress'."),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Write exception NDJSON here (default: stdout)."
+    ),
+    list_id: str = typer.Option(
+        "ddr-exceptions", "--list-id", help="Elastic exception list ID."
+    ),
+) -> None:
+    """Emit a Kibana exception list item NDJSON from an Elastic suppress DDR record."""
+    if not path.exists():
+        typer.echo(f"ERROR: {path} not found", err=True)
+        raise typer.Exit(1)
+
+    try:
+        record = _load_record(path)
+    except (ValidationError, ValueError) as exc:
+        typer.echo(f"ERROR: {path}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if record.target.kind != "elastic":
+        typer.echo(
+            f"ERROR: export-elastic-exception requires target.kind='elastic', "
+            f"got '{record.target.kind}'",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if not isinstance(record.decision, SuppressDecision):
+        typer.echo(
+            f"ERROR: decision.kind is '{record.decision.kind}', expected 'suppress'. "
+            "accept-risk and deprecate decisions have no exception to export.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    try:
+        from ddr.exporters.elastic_exception import export_to_ndjson
+
+        ndjson, is_manual = export_to_ndjson(record, output=output, list_id=list_id)
+    except Exception as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if is_manual:
+        typer.echo(
+            "# MANUAL: KQL filter was too complex to auto-parse into structured entries[].\n"
+            "#         Review entries[] in the output and populate before importing into Kibana.",
+            err=True,
+        )
+
+    if output:
+        typer.echo(f"Exported Elastic exception to {output}")
+    else:
+        typer.echo(ndjson)
 
 
 if __name__ == "__main__":

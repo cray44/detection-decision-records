@@ -312,7 +312,7 @@ def test_new_splunk_target_custom_app():
 
 
 def test_new_invalid_target():
-    result = runner.invoke(app, ["new", "--target", "elastic"])
+    result = runner.invoke(app, ["new", "--target", "flibbertigibbet"])
     assert result.exit_code == 1
 
 
@@ -824,4 +824,247 @@ def test_validate_v04_backcompat_fixture(valid_fixtures_dir):
 
 def test_validate_multi_ref_fixture(valid_fixtures_dir):
     result = runner.invoke(app, ["validate", str(valid_fixtures_dir / "multi_ref_sigma.yml")])
+    assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# v0.6: Elastic target — ddr new / validate / refresh-hash / export
+# ---------------------------------------------------------------------------
+
+_ELASTIC_RULE_NDJSON = (
+    '{"rule_id":"96b9fc2a-cbd5-4a3e-b7d7-3d9d6a6e8d5c",'
+    '"name":"Windows Defender AV Threats",'
+    '"type":"eql","language":"eql",'
+    '"query":"process where process.name : \\"MpCmdRun.exe\\"",'
+    '"risk_score":47,"severity":"medium","tags":["Windows"],'
+    '"enabled":true,"from":"now-360s","to":"now","interval":"5m",'
+    '"max_signals":100,"threat":[]}\n'
+)
+
+
+def test_new_elastic_target_no_file():
+    """--target elastic with no file produces a placeholder scaffold."""
+    result = runner.invoke(app, ["new", "--target", "elastic"])
+    assert result.exit_code == 0
+    assert "elastic" in result.output
+    assert "query_refs" in result.output
+    assert "kql_filter" in result.output
+
+
+def test_new_elastic_target_from_ndjson(tmp_path):
+    ndjson = tmp_path / "rule.ndjson"
+    ndjson.write_text(_ELASTIC_RULE_NDJSON, encoding="utf-8")
+    result = runner.invoke(app, ["new", str(ndjson)])
+    assert result.exit_code == 0
+    assert "elastic" in result.output
+    assert "query_refs" in result.output
+    assert "96b9fc2a" in result.output
+    assert "Windows Defender" in result.output
+
+
+def test_new_elastic_ndjson_infers_target(tmp_path):
+    """.ndjson extension auto-selects --target elastic."""
+    ndjson = tmp_path / "rule.ndjson"
+    ndjson.write_text(_ELASTIC_RULE_NDJSON, encoding="utf-8")
+    result = runner.invoke(app, ["new", str(ndjson)])
+    assert result.exit_code == 0
+    assert "kind: elastic" in result.output
+
+
+def test_new_elastic_accept_risk_decision(tmp_path):
+    ndjson = tmp_path / "rule.ndjson"
+    ndjson.write_text(_ELASTIC_RULE_NDJSON, encoding="utf-8")
+    result = runner.invoke(app, ["new", str(ndjson), "--decision", "accept-risk"])
+    assert result.exit_code == 0
+    assert "accept-risk" in result.output
+    assert "kql_filter" not in result.output
+
+
+def test_validate_elastic_fixture(valid_fixtures_dir):
+    result = runner.invoke(
+        app, ["validate", str(valid_fixtures_dir / "elastic_suppress.yml")]
+    )
+    assert result.exit_code == 0
+    assert "OK" in result.output
+
+
+def test_validate_mixed_directory_with_elastic(valid_fixtures_dir):
+    """Directory containing sigma, splunk, and elastic DDRs all validate."""
+    result = runner.invoke(app, ["validate", str(valid_fixtures_dir)])
+    assert result.exit_code == 0
+
+
+def test_list_shows_elastic_target(valid_fixtures_dir):
+    import json
+
+    result = runner.invoke(app, ["list", "--format", "json", str(valid_fixtures_dir)])
+    assert result.exit_code == 0
+    rows = json.loads(result.output)
+    elastic_rows = [r for r in rows if r["target"] == "elastic"]
+    assert len(elastic_rows) >= 1
+
+
+def test_list_filter_by_elastic_target(valid_fixtures_dir):
+    result = runner.invoke(app, ["list", "--target", "elastic", str(valid_fixtures_dir)])
+    assert result.exit_code == 0
+
+
+_ELASTIC_DDR_TEMPLATE = """\
+ddr_version: "0.6"
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+title: Suppress elastic test
+description: test
+target:
+  kind: elastic
+  query_refs:
+    - rule_id: "96b9fc2a-cbd5-4a3e-b7d7-3d9d6a6e8d5c"
+      name: "Windows Defender AV Threats"
+      index_pattern: "logs-endpoint.events.process-*"
+      content_hash: sha256:{old_hash}
+      source: internal
+      path_or_url: "{ndjson_path}"
+decision:
+  kind: suppress
+  rationale: Scanner FP.
+  tuning:
+    kind: elastic
+    filter_title: Suppress scanner AV
+    kql_filter: 'source.ip : "10.0.100.0/24"'
+lifecycle:
+  status: active
+  created_on: "2026-05-08T00:00:00Z"
+  activated_on: "2026-05-08T00:00:00Z"
+  expires_on: "2027-05-08T00:00:00Z"
+provenance:
+  author: test@example.com
+"""
+
+
+def _make_elastic_ddr(
+    tmp_path: Path, ndjson_path: Path, old_hash: str = "sha256:" + "0" * 64
+) -> Path:
+    ddr = tmp_path / "elastic_ddr.yml"
+    ddr.write_text(
+        _ELASTIC_DDR_TEMPLATE.format(
+            old_hash=old_hash[len("sha256:"):],
+            ndjson_path=str(ndjson_path).replace("\\", "/"),
+        ),
+        encoding="utf-8",
+    )
+    return ddr
+
+
+def test_refresh_hash_elastic_updates(tmp_path):
+    ndjson = tmp_path / "rule.ndjson"
+    ndjson.write_text(_ELASTIC_RULE_NDJSON, encoding="utf-8")
+    ddr = _make_elastic_ddr(tmp_path, ndjson)
+    result = runner.invoke(app, ["refresh-hash", str(ddr)])
+    assert result.exit_code == 0
+    assert "sha256:" in result.output
+
+
+def test_refresh_hash_elastic_unchanged(tmp_path):
+    from ddr._internal.elastic_hash import compute_elastic_hash
+
+    ndjson = tmp_path / "rule.ndjson"
+    ndjson.write_text(_ELASTIC_RULE_NDJSON, encoding="utf-8")
+    current_hash = compute_elastic_hash(ndjson)
+
+    ddr = _make_elastic_ddr(tmp_path, ndjson, old_hash=current_hash)
+    result = runner.invoke(app, ["refresh-hash", str(ddr)])
+    assert result.exit_code == 0
+    assert "unchanged" in result.output.lower()
+
+
+def test_refresh_hash_elastic_no_path(tmp_path):
+    """Elastic ref with no path_or_url is skipped with a clear message."""
+    ddr = tmp_path / "ddr.yml"
+    ddr.write_text(
+        'ddr_version: "0.6"\nid: a1b2c3d4-e5f6-7890-abcd-ef1234567890\n'
+        'title: t\ndescription: d\n'
+        'target:\n  kind: elastic\n  query_refs:\n'
+        '    - rule_id: abc\n      name: r\n      index_pattern: logs-*\n      source: internal\n'
+        'decision:\n  kind: deprecate\n  rationale: r\n'
+        'lifecycle:\n  status: draft\n  created_on: "2026-01-01T00:00:00Z"\n'
+        'provenance:\n  author: t\n',
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["refresh-hash", str(ddr)])
+    assert result.exit_code == 0
+    assert "skipping" in result.output.lower() or "no path" in result.output.lower()
+
+
+def test_refresh_hash_elastic_multi_ref_rule_override_fails(tmp_path):
+    ndjson1 = tmp_path / "rule1.ndjson"
+    ndjson2 = tmp_path / "rule2.ndjson"
+    ndjson1.write_text(_ELASTIC_RULE_NDJSON, encoding="utf-8")
+    ndjson2.write_text(_ELASTIC_RULE_NDJSON, encoding="utf-8")
+
+    ddr = tmp_path / "multi.yml"
+    ddr.write_text(
+        'ddr_version: "0.6"\nid: a1b2c3d4-e5f6-7890-abcd-ef1234567890\n'
+        'title: t\ndescription: d\n'
+        'target:\n  kind: elastic\n  query_refs:\n'
+        f'    - rule_id: r1\n      name: R1\n      index_pattern: logs-*\n'
+        f'      source: internal\n      path_or_url: "{str(ndjson1).replace(chr(92), "/")}"\n'
+        f'    - rule_id: r2\n      name: R2\n      index_pattern: logs-*\n'
+        f'      source: internal\n      path_or_url: "{str(ndjson2).replace(chr(92), "/")}"\n'
+        'decision:\n  kind: deprecate\n  rationale: r\n'
+        'lifecycle:\n  status: draft\n  created_on: "2026-01-01T00:00:00Z"\n'
+        'provenance:\n  author: t\n',
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["refresh-hash", str(ddr), "--rule", str(ndjson1)])
+    assert result.exit_code == 1
+    assert "multi-ref" in result.output.lower()
+
+
+def test_export_elastic_exception_simple_kql(tmp_path):
+    ndjson = tmp_path / "rule.ndjson"
+    ndjson.write_text(_ELASTIC_RULE_NDJSON, encoding="utf-8")
+    ddr = _make_elastic_ddr(tmp_path, ndjson)
+    result = runner.invoke(app, ["export-elastic-exception", str(ddr)])
+    assert result.exit_code == 0
+    import json
+    obj = json.loads(result.output.strip())
+    assert obj["type"] == "simple"
+    assert len(obj["entries"]) == 1
+
+
+def test_export_elastic_exception_to_file(tmp_path):
+    ndjson = tmp_path / "rule.ndjson"
+    ndjson.write_text(_ELASTIC_RULE_NDJSON, encoding="utf-8")
+    ddr = _make_elastic_ddr(tmp_path, ndjson)
+    out = tmp_path / "exception.ndjson"
+    result = runner.invoke(app, ["export-elastic-exception", str(ddr), "--output", str(out)])
+    assert result.exit_code == 0
+    assert out.exists()
+
+
+def test_export_elastic_exception_custom_list_id(tmp_path):
+    ndjson = tmp_path / "rule.ndjson"
+    ndjson.write_text(_ELASTIC_RULE_NDJSON, encoding="utf-8")
+    ddr = _make_elastic_ddr(tmp_path, ndjson)
+    result = runner.invoke(
+        app, ["export-elastic-exception", str(ddr), "--list-id", "my-team-exceptions"]
+    )
+    assert result.exit_code == 0
+    import json
+    obj = json.loads(result.output.strip())
+    assert obj["list_id"] == "my-team-exceptions"
+
+
+def test_export_elastic_exception_wrong_target_fails(valid_fixtures_dir):
+    result = runner.invoke(
+        app, ["export-elastic-exception", str(valid_fixtures_dir / "suppress_basic.yml")]
+    )
+    assert result.exit_code == 1
+    assert "elastic" in result.output.lower()
+
+
+def test_export_elastic_exception_non_suppress_fails(valid_fixtures_dir):
+    result = runner.invoke(
+        app, ["export-elastic-exception", str(valid_fixtures_dir / "elastic_suppress.yml")]
+    )
+    # elastic_suppress.yml uses suppress decision, should pass
     assert result.exit_code == 0

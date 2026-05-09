@@ -48,6 +48,24 @@ ddr refresh-hash my_suppression.yml        # re-reads conf, recomputes hash
 ddr validate --strict my_suppression.yml   # warns on hash drift
 ```
 
+### Elastic Security target
+
+```bash
+# Infers --target elastic from .ndjson extension; extracts rule_id and name
+ddr new rules/elastic/windows-defender-av.ndjson --output my_suppression.yml
+
+# fill rationale, kql_filter, lifecycle dates
+ddr validate my_suppression.yml
+ddr export-elastic-exception my_suppression.yml   # Kibana-importable NDJSON
+```
+
+If the Elastic rule is updated later:
+
+```bash
+ddr refresh-hash my_suppression.yml        # recomputes hash, ignores volatile Kibana fields
+ddr validate --strict my_suppression.yml   # warns on hash drift
+```
+
 ### Lifecycle management
 
 ```bash
@@ -66,22 +84,24 @@ record = DDRRecord.model_validate(yaml.safe_load(open("my_suppression.yml")))
 
 | Command | Description |
 |---|---|
-| `ddr new <rule_or_conf>` | Scaffold a DDR from a Sigma rule or `savedsearches.conf` |
+| `ddr new <rule_or_conf>` | Scaffold a DDR from a Sigma rule, `savedsearches.conf`, or Elastic rule NDJSON |
 | `ddr list [--status] [--target] [--decision]` | Summary table of DDRs by status/target/decision/ref count |
 | `ddr validate [--strict]` | Validate one file or directory; `--strict` adds hash-drift check |
 | `ddr expire-check [--days-ahead N]` | Report expired / due-for-review active records |
 | `ddr export-sigma-filter` | Emit a Sigma Filter YAML from a suppress DDR (Sigma targets) |
 | `ddr export-splunk [--format savedsearches]` | Emit a SPL `NOT (...)` clause |
+| `ddr export-elastic-exception [--list-id]` | Emit a Kibana exception list item NDJSON (Elastic targets) |
 | `ddr refresh-hash [--rule / --conf]` | Recompute content/query hash after a cosmetic-only change |
 
 ## Target kinds
 
-| `target.kind` | Use when | Hash field |
-|---|---|---|
-| `sigma` | A Sigma rule exists | `content_hash` (SHA-256 of canonicalized YAML) |
-| `splunk` | Detection lives only in Splunk — no Sigma rule | `query_hash` (SHA-256 of canonicalized SPL) |
+| `target.kind` | Use when | Hash field | Export command |
+|---|---|---|---|
+| `sigma` | A Sigma rule exists | `content_hash` (SHA-256 of canonicalized YAML) | `export-sigma-filter` |
+| `splunk` | Detection lives only in Splunk — no Sigma rule | `query_hash` (SHA-256 of canonicalized SPL) | `export-splunk` |
+| `elastic` | Detection is an Elastic Security rule (EQL/KQL/threshold) | `content_hash` (SHA-256 of canonicalized rule JSON, volatile fields stripped) | `export-elastic-exception` |
 
-Splunk-native targets have no dependency on sigma-to-spl.
+Splunk and Elastic native targets have no dependency on sigma-to-spl.
 
 ## Multi-rule targeting
 
@@ -107,7 +127,8 @@ v0.1–v0.4 records with the old singular `rule_ref` field continue to load unch
 
 | Version | Key addition |
 |---|---|
-| **v0.5** | Multi-rule targeting (`rule_refs`/`query_refs`), `ddr list` command, back-compat shim for v0.1–v0.4 |
+| **v0.6** | Elastic Security target (`target.kind: elastic`), `export-elastic-exception`, Elastic canonicalization v1 |
+| v0.5 | Multi-rule targeting (`rule_refs`/`query_refs`), `ddr list` command, back-compat shim for v0.1–v0.4 |
 | v0.4 | `savedsearches.conf` parser, SPL canonicalization, `query_hash` automation, `refresh-hash` Splunk branch |
 | v0.3 | Splunk-native target (`target.kind: splunk`), `SplunkTuning`, `export-splunk` Splunk-native path |
 | v0.2 | `ddr export-splunk` (Sigma targets via sigma-to-spl), `--format savedsearches` |
@@ -118,9 +139,10 @@ v0.1–v0.4 records with the old singular `rule_ref` field continue to load unch
 ```
 spec/        Human-readable spec + JSON Schema (generated, CI-checked for drift)
 src/ddr/     Python package — models, CLI, exporters, internal utilities
-examples/    8 worked examples (PsExec, Nessus, schtasks, AWS root, WMI legacy,
-             Splunk-native savedsearch, multi-stanza Splunk Add-on, multi-rule WMI deprecation)
-tests/       185 unit + integration tests + invalid-fixture corpus
+examples/    9 worked examples (PsExec, Nessus, schtasks, AWS root, WMI legacy,
+             Splunk-native savedsearch, multi-stanza Splunk Add-on, multi-rule WMI deprecation,
+             Elastic Security AV scanner suppress)
+tests/       248 unit + integration tests + invalid-fixture corpus
 docs/        Design documents for each release
 ```
 

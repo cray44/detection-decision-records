@@ -1,10 +1,10 @@
 # Worked Examples
 
-8 canonical DDRs spanning all decision kinds and both target kinds. Each example is a directory containing:
+9 canonical DDRs spanning all decision kinds and all three target kinds. Each example is a directory containing:
 
-- `sigma-rule.yml` — the Sigma rule (vendored, pinned by content hash); Splunk examples use `savedsearch.conf` instead
+- Source rule file — `sigma-rule.yml` (Sigma targets), `savedsearch.conf` (Splunk targets), or `elastic-rule.ndjson` (Elastic targets)
 - `ddr.yml` — the Detection Decision Record
-- `sigma-filter.yml` — exported Sigma Filter (suppress + Sigma-target examples only)
+- Exported artifact — `sigma-filter.yml` (Sigma suppress), or `elastic-exception.ndjson` (Elastic suppress)
 - `README.md` — FP scenario explanation and *why this decision over alternatives*
 
 CI validates every `ddr.yml` and re-exports suppress filters on each run. If the spec can't express an example, the spec is wrong.
@@ -21,6 +21,7 @@ CI validates every `ddr.yml` and re-exports suppress filters on each run. If the
 | 6 | `06-splunk-native-savedsearch/` | splunk | Vuln scanner + LDAP health check | `suppress` |
 | 7 | `07-splunk-multi-stanza-app/` | splunk | Multi-stanza TA conf | `suppress` |
 | 8 | `08-multi-rule-wmi-deprecate/` | sigma (3 refs) | Legacy rule cluster retirement | `deprecate` |
+| 9 | `09-elastic-av-scanner-suppress/` | elastic | Nessus scanner triggers Defender AV rule | `suppress` |
 
 ## Quickstart
 
@@ -36,10 +37,11 @@ List all examples with ref counts:
 ddr list examples/
 ```
 
-Re-export a filter:
+Re-export a Sigma filter or Elastic exception:
 
 ```bash
 ddr export-sigma-filter examples/01-psexec-admin-suppression/ddr.yml
+ddr export-elastic-exception examples/09-elastic-av-scanner-suppress/ddr.yml
 ```
 
 Check for expired records:

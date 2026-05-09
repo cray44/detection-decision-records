@@ -130,3 +130,166 @@ def test_export_sigma_filter_parses_with_pysigma():
     sigma_filter = build_sigma_filter(record)
     parsed = SigmaFilter.from_dict(sigma_filter)
     assert parsed is not None
+
+
+# ---------------------------------------------------------------------------
+# Elastic exception exporter (v0.6)
+# ---------------------------------------------------------------------------
+
+import json as _json  # noqa: E402
+
+from ddr.exporters.elastic_exception import build_elastic_exception, export_to_ndjson  # noqa: E402
+
+
+def _elastic_suppress_data(**overrides) -> dict:
+    base = {
+        "ddr_version": "0.6",
+        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "title": "Suppress: AV scanner noise",
+        "description": "Nessus scanner FP.",
+        "target": {
+            "kind": "elastic",
+            "query_refs": [
+                {
+                    "rule_id": "96b9fc2a-cbd5-4a3e-b7d7-3d9d6a6e8d5c",
+                    "name": "Windows Defender AV Threats",
+                    "index_pattern": "logs-endpoint.events.process-*",
+                    "source": "internal",
+                }
+            ],
+        },
+        "decision": {
+            "kind": "suppress",
+            "rationale": "Scanner FP.",
+            "tuning": {
+                "kind": "elastic",
+                "filter_title": "Suppress Nessus AV",
+                "kql_filter": 'source.ip : "10.0.100.0/24"',
+            },
+        },
+        "lifecycle": {
+            "status": "active",
+            "created_on": _NOW.isoformat(),
+            "activated_on": _NOW.isoformat(),
+            "expires_on": _FUTURE.isoformat(),
+        },
+        "provenance": {"author": "alice@example.com"},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_elastic_exception_structure():
+    record = DDRRecord.model_validate(_elastic_suppress_data())
+    item = build_elastic_exception(record)
+    item.pop("_is_manual")
+    assert item["namespace_type"] == "single"
+    assert item["type"] == "simple"
+    assert "entries" in item
+    assert "tags" in item
+    assert "ddr" in item["tags"]
+
+
+def test_elastic_exception_simple_match_entry():
+    record = DDRRecord.model_validate(_elastic_suppress_data())
+    item = build_elastic_exception(record)
+    item.pop("_is_manual")
+    assert len(item["entries"]) == 1
+    entry = item["entries"][0]
+    assert entry["field"] == "source.ip"
+    assert entry["type"] == "match"
+    assert entry["value"] == "10.0.100.0/24"
+
+
+def test_elastic_exception_and_chain():
+    data = _elastic_suppress_data()
+    data["decision"]["tuning"]["kql_filter"] = (
+        'source.ip : "10.0.100.0/24" and agent.name : "nessus"'
+    )
+    record = DDRRecord.model_validate(data)
+    item = build_elastic_exception(record)
+    is_manual = item.pop("_is_manual")
+    assert not is_manual
+    assert len(item["entries"]) == 2
+
+
+def test_elastic_exception_wildcard_entry():
+    data = _elastic_suppress_data()
+    data["decision"]["tuning"]["kql_filter"] = 'agent.name : nessus*'
+    record = DDRRecord.model_validate(data)
+    item = build_elastic_exception(record)
+    item.pop("_is_manual")
+    assert len(item["entries"]) == 1
+    assert item["entries"][0]["type"] == "wildcard"
+    assert item["entries"][0]["value"] == "nessus*"
+
+
+def test_elastic_exception_complex_kql_is_manual():
+    data = _elastic_suppress_data()
+    data["decision"]["tuning"]["kql_filter"] = 'source.ip : "10.0.0.1" or agent.name : "nessus"'
+    record = DDRRecord.model_validate(data)
+    item = build_elastic_exception(record)
+    is_manual = item.pop("_is_manual")
+    assert is_manual
+    assert item["entries"] == []
+
+
+def test_elastic_exception_nested_parens_is_manual():
+    data = _elastic_suppress_data()
+    data["decision"]["tuning"]["kql_filter"] = '(source.ip : "10.0.0.1" and host.name : "foo")'
+    record = DDRRecord.model_validate(data)
+    item = build_elastic_exception(record)
+    is_manual = item.pop("_is_manual")
+    assert is_manual
+
+
+def test_elastic_exception_kql_preserved_in_description():
+    """Raw KQL always appears in the item description for human review."""
+    record = DDRRecord.model_validate(_elastic_suppress_data())
+    item = build_elastic_exception(record)
+    item.pop("_is_manual")
+    assert 'source.ip : "10.0.100.0/24"' in item["description"]
+
+
+def test_elastic_exception_filter_title_used_as_name():
+    record = DDRRecord.model_validate(_elastic_suppress_data())
+    item = build_elastic_exception(record)
+    item.pop("_is_manual")
+    assert item["name"] == "Suppress Nessus AV"
+
+
+def test_elastic_exception_list_id_respected():
+    record = DDRRecord.model_validate(_elastic_suppress_data())
+    item = build_elastic_exception(record, list_id="my-custom-list")
+    item.pop("_is_manual")
+    assert item["list_id"] == "my-custom-list"
+
+
+def test_elastic_exception_non_suppress_raises():
+    data = _elastic_suppress_data()
+    data["decision"] = {"kind": "accept-risk", "rationale": "Accepted."}
+    record = DDRRecord.model_validate(data)
+    with pytest.raises(ValueError, match="suppress"):
+        build_elastic_exception(record)
+
+
+def test_elastic_exception_non_elastic_target_raises():
+    record = DDRRecord.model_validate(_suppress_record_data())
+    with pytest.raises(ValueError, match="elastic"):
+        build_elastic_exception(record)
+
+
+def test_export_to_ndjson_returns_string():
+    record = DDRRecord.model_validate(_elastic_suppress_data())
+    ndjson, _ = export_to_ndjson(record)
+    obj = _json.loads(ndjson)
+    assert obj["type"] == "simple"
+
+
+def test_export_to_ndjson_writes_file(tmp_path):
+    record = DDRRecord.model_validate(_elastic_suppress_data())
+    out = tmp_path / "exception.ndjson"
+    ndjson, _ = export_to_ndjson(record, output=out)
+    assert out.exists()
+    content = out.read_text(encoding="utf-8").strip()
+    assert _json.loads(content) == _json.loads(ndjson)
