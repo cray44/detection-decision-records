@@ -94,7 +94,17 @@ class SigmaTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["sigma"] = "sigma"
-    rule_ref: RuleRef
+    rule_refs: list[RuleRef] = Field(..., min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_singular(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if "rule_refs" not in data and "rule_ref" in data:
+            data = {**data, "rule_refs": [data["rule_ref"]]}
+        # Drop rule_ref in all cases — extra="forbid" would reject it
+        return {k: v for k, v in data.items() if k != "rule_ref"}
 
 
 class SplunkQueryRef(BaseModel):
@@ -121,7 +131,17 @@ class SplunkTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["splunk"] = "splunk"
-    query_ref: SplunkQueryRef
+    query_refs: list[SplunkQueryRef] = Field(..., min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_singular(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if "query_refs" not in data and "query_ref" in data:
+            data = {**data, "query_refs": [data["query_ref"]]}
+        # Drop query_ref in all cases — extra="forbid" would reject it
+        return {k: v for k, v in data.items() if k != "query_ref"}
 
 
 Target = Annotated[SigmaTarget | SplunkTarget, Field(discriminator="kind")]
@@ -281,7 +301,7 @@ class DDRRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ddr_version: Annotated[str, Field(pattern=r"^0\.[1234]$")]
+    ddr_version: Annotated[str, Field(pattern=r"^0\.[12345]$")]
     id: UUID
     target: Target
     title: str

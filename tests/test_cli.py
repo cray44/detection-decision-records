@@ -638,3 +638,190 @@ def test_validate_strict_splunk_no_drift_no_warn(tmp_path):
 def test_validate_v03_fixture_under_v04(valid_fixtures_dir):
     result = runner.invoke(app, ["validate", str(valid_fixtures_dir / "v0.3-record.yml")])
     assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# v0.5: ddr new emits rule_refs (plural)
+# ---------------------------------------------------------------------------
+
+
+def test_new_sigma_scaffold_emits_rule_refs(tmp_path):
+    rule = tmp_path / "rule.yml"
+    rule.write_text(
+        "id: d7a95147-145f-4678-b555-b7a3c9b16830\ntitle: Test Rule\n"
+        "logsource:\n  category: process_creation\n  product: windows\n"
+        "detection:\n  selection:\n    CommandLine: '*'\n  condition: selection\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["new", str(rule)])
+    assert result.exit_code == 0
+    assert "rule_refs:" in result.output
+    assert "rule_ref:" not in result.output.replace("rule_refs:", "")
+
+
+def test_new_splunk_scaffold_emits_query_refs(tmp_path):
+    result = runner.invoke(app, ["new", "--target", "splunk", "--name", "My Detection"])
+    assert result.exit_code == 0
+    assert "query_refs:" in result.output
+
+
+# ---------------------------------------------------------------------------
+# v0.5: ddr list
+# ---------------------------------------------------------------------------
+
+
+def test_list_table_output(valid_fixtures_dir):
+    result = runner.invoke(app, ["list", str(valid_fixtures_dir)])
+    assert result.exit_code == 0
+    assert "STATUS" in result.output
+
+
+def test_list_json_output(valid_fixtures_dir):
+    import json
+
+    result = runner.invoke(app, ["list", "--format", "json", str(valid_fixtures_dir)])
+    assert result.exit_code == 0
+    rows = json.loads(result.output)
+    assert isinstance(rows, list)
+    assert len(rows) > 0
+    assert "status" in rows[0]
+    assert "target" in rows[0]
+    assert "refs" in rows[0]
+
+
+def test_list_filter_by_status(valid_fixtures_dir):
+    result = runner.invoke(app, ["list", "--status", "active", str(valid_fixtures_dir)])
+    assert result.exit_code == 0
+    # every line in output (after header) should be active
+    lines = [
+        ln
+        for ln in result.output.splitlines()
+        if ln and not ln.startswith("STATUS") and not ln.startswith("-")
+    ]
+    for line in lines:
+        assert line.startswith("active")
+
+
+def test_list_filter_by_decision(valid_fixtures_dir):
+    result = runner.invoke(app, ["list", "--decision", "suppress", str(valid_fixtures_dir)])
+    assert result.exit_code == 0
+
+
+def test_list_empty_dir(tmp_path):
+    result = runner.invoke(app, ["list", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "No DDR records found" in result.output
+
+
+def test_list_multi_ref_shows_correct_count(valid_fixtures_dir):
+    import json
+
+    result = runner.invoke(app, ["list", "--format", "json", str(valid_fixtures_dir)])
+    rows = json.loads(result.output)
+    multi = [r for r in rows if r["refs"] == 3]
+    assert len(multi) == 1  # only multi_ref_sigma.yml has 3
+
+
+# ---------------------------------------------------------------------------
+# v0.5: ddr refresh-hash multi-ref sigma
+# ---------------------------------------------------------------------------
+
+
+_SIGMA_RULE_YAML = """\
+id: d7a95147-145f-4678-b555-b7a3c9b16830
+title: Test Rule
+status: experimental
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    CommandLine: '*'
+  condition: selection
+"""
+
+_MULTI_REF_DDR_TEMPLATE = """\
+ddr_version: "0.5"
+id: f47ac10b-58cc-4372-a567-0e02b2c3d499
+title: Multi-ref test
+description: test
+target:
+  kind: sigma
+  rule_refs:
+    - rule_id: d7a95147-145f-4678-b555-b7a3c9b16830
+      content_hash: sha256:{hash1}
+      source: internal
+      path_or_url: "{rule1_path}"
+    - rule_id: e8b3d258-256a-5789-bcde-f02345678901
+      content_hash: sha256:{hash2}
+      source: internal
+      path_or_url: "{rule2_path}"
+decision:
+  kind: deprecate
+  rationale: Retiring two overlapping rules.
+lifecycle:
+  status: active
+  created_on: "2026-01-01T00:00:00Z"
+provenance:
+  author: test@example.com
+"""
+
+
+def test_refresh_hash_sigma_multi_ref(tmp_path):
+    rule1 = tmp_path / "rule1.yml"
+    rule2 = tmp_path / "rule2.yml"
+    rule1.write_text(_SIGMA_RULE_YAML, encoding="utf-8")
+    rule2.write_text(_SIGMA_RULE_YAML.replace("Test Rule", "Test Rule 2"), encoding="utf-8")
+
+    ddr = tmp_path / "ddr.yml"
+    ddr.write_text(
+        _MULTI_REF_DDR_TEMPLATE.format(
+            hash1="0" * 64,
+            hash2="1" * 64,
+            rule1_path=str(rule1).replace("\\", "/"),
+            rule2_path=str(rule2).replace("\\", "/"),
+        ),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["refresh-hash", str(ddr)])
+    assert result.exit_code == 0
+    assert "rule_refs[0]" in result.output or "sha256:" in result.output
+    assert "rule_refs[1]" in result.output or "sha256:" in result.output
+
+
+def test_refresh_hash_sigma_multi_ref_rule_override_fails(tmp_path):
+    rule1 = tmp_path / "rule1.yml"
+    rule2 = tmp_path / "rule2.yml"
+    rule1.write_text(_SIGMA_RULE_YAML, encoding="utf-8")
+    rule2.write_text(_SIGMA_RULE_YAML, encoding="utf-8")
+
+    ddr = tmp_path / "ddr.yml"
+    ddr.write_text(
+        _MULTI_REF_DDR_TEMPLATE.format(
+            hash1="0" * 64,
+            hash2="1" * 64,
+            rule1_path=str(rule1).replace("\\", "/"),
+            rule2_path=str(rule2).replace("\\", "/"),
+        ),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["refresh-hash", str(ddr), "--rule", str(rule1)])
+    assert result.exit_code == 1
+    assert "multi-ref" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# v0.5: back-compat — v0.4 back-compat fixture validates under v0.5
+# ---------------------------------------------------------------------------
+
+
+def test_validate_v04_backcompat_fixture(valid_fixtures_dir):
+    result = runner.invoke(
+        app, ["validate", str(valid_fixtures_dir / "v0.4_backcompat_rule_ref.yml")]
+    )
+    assert result.exit_code == 0
+
+
+def test_validate_multi_ref_fixture(valid_fixtures_dir):
+    result = runner.invoke(app, ["validate", str(valid_fixtures_dir / "multi_ref_sigma.yml")])
+    assert result.exit_code == 0

@@ -1,0 +1,27 @@
+title: WMI Network Connection - Legacy
+id: c3f4e5d6-0000-0003-0000-000000000003
+status: deprecated
+description: Detects WMI-spawned network connection. Superseded by win_wmi_consolidated_lateral_movement.
+author: SigmaHQ
+date: 2022/01/20
+modified: 2026/04/01
+logsource:
+  category: network_connection
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\WmiPrvSE.exe'
+    Initiated: 'true'
+  filter_main_private:
+    DestinationIp|cidr:
+      - '10.0.0.0/8'
+      - '172.16.0.0/12'
+      - '192.168.0.0/16'
+  condition: selection and not filter_main_private
+falsepositives:
+  - WMI remote management to internal hosts
+level: medium
+tags:
+  - attack.lateral_movement
+  - attack.t1021.006
+  - attack.t1047

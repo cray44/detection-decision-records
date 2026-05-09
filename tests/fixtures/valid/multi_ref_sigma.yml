@@ -1,0 +1,27 @@
+ddr_version: "0.5"
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+title: "Deprecate: Legacy WMI lateral movement rule cluster"
+description: "Three overlapping WMI detection rules consolidated into a single replacement rule."
+target:
+  kind: sigma
+  rule_refs:
+    - rule_id: d7a95147-145f-4678-b555-b7a3c9b16830
+      content_hash: sha256:0000000000000000000000000000000000000000000000000000000000000000
+      source: sigmahq
+      path_or_url: "https://github.com/SigmaHQ/sigma/blob/main/rules/windows/wmi/rule1.yml"
+    - rule_id: e8b3d258-256a-5789-bcde-f02345678901
+      content_hash: sha256:1111111111111111111111111111111111111111111111111111111111111111
+      source: sigmahq
+      path_or_url: "https://github.com/SigmaHQ/sigma/blob/main/rules/windows/wmi/rule2.yml"
+    - rule_id: f9c4e369-367b-6890-cdef-013456789012
+      content_hash: sha256:2222222222222222222222222222222222222222222222222222222222222222
+      source: sigmahq
+      path_or_url: "https://github.com/SigmaHQ/sigma/blob/main/rules/windows/wmi/rule3.yml"
+decision:
+  kind: deprecate
+  rationale: "All three rules replaced by win_wmi_consolidated_lateral_movement.yml which covers all variants with lower FP rate."
+lifecycle:
+  status: active
+  created_on: "2026-05-08T10:00:00Z"
+provenance:
+  author: cray44@example.com

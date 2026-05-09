@@ -1,0 +1,22 @@
+title: WMI Registry Modification - Legacy
+id: b2f3e4d5-0000-0002-0000-000000000002
+status: deprecated
+description: Detects WMI-spawned registry modification. Superseded by win_wmi_consolidated_lateral_movement.
+author: SigmaHQ
+date: 2021/06/10
+modified: 2026/04/01
+logsource:
+  category: registry_event
+  product: windows
+detection:
+  selection:
+    Image|endswith: '\WmiPrvSE.exe'
+    TargetObject|contains: '\Software\Microsoft\Windows\CurrentVersion\Run'
+  condition: selection
+falsepositives:
+  - Legitimate WMI-based configuration management
+level: high
+tags:
+  - attack.persistence
+  - attack.t1547.001
+  - attack.t1047

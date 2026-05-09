@@ -325,15 +325,21 @@ def test_splunk_query_ref_extra_field_rejected():
 
 
 def test_splunk_target_valid():
-    t = SplunkTarget.model_validate({"kind": "splunk", "query_ref": _splunk_query_ref()})
+    t = SplunkTarget.model_validate({"kind": "splunk", "query_refs": [_splunk_query_ref()]})
     assert t.kind == "splunk"
-    assert t.query_ref.name == "My Detection"
+    assert t.query_refs[0].name == "My Detection"
+
+
+def test_splunk_target_back_compat_singular():
+    """v0.3 YAML with query_ref (singular) still loads via the coercion shim."""
+    t = SplunkTarget.model_validate({"kind": "splunk", "query_ref": _splunk_query_ref()})
+    assert t.query_refs[0].name == "My Detection"
 
 
 def test_splunk_target_extra_field_rejected():
     with pytest.raises(ValidationError):
         SplunkTarget.model_validate(
-            {"kind": "splunk", "query_ref": _splunk_query_ref(), "bad": "field"}
+            {"kind": "splunk", "query_refs": [_splunk_query_ref()], "bad": "field"}
         )
 
 
@@ -378,7 +384,7 @@ def _splunk_suppress_record(**overrides) -> dict:
         "description": "FP from authorized scanner.",
         "target": {
             "kind": "splunk",
-            "query_ref": {"name": "My Detection", "app": "search"},
+            "query_refs": [{"name": "My Detection", "app": "search"}],
         },
         "decision": {
             "kind": "suppress",
@@ -404,6 +410,7 @@ def test_ddr_record_splunk_target_suppress():
     record = DDRRecord.model_validate(_splunk_suppress_record())
     assert isinstance(record.target, SplunkTarget)
     assert record.target.kind == "splunk"
+    assert len(record.target.query_refs) == 1
     assert isinstance(record.decision.tuning, SplunkTuning)  # type: ignore[union-attr]
 
 
@@ -487,3 +494,95 @@ def test_mixed_sigma_splunk_directory_validates(valid_fixtures_dir):
     )
     assert sigma_record.target.kind == "sigma"
     assert splunk_record.target.kind == "splunk"
+
+
+# --- v0.5: multi-rule targeting ---
+
+
+def _multi_ref_rule(n: int) -> dict:
+    h = hex(n)[2:].zfill(64)
+    return {
+        "rule_id": f"a{n:07d}-0000-0000-0000-000000000000",
+        "content_hash": f"sha256:{h}",
+        "source": "sigmahq",
+        "path_or_url": f"https://example.com/rule{n}.yml",
+    }
+
+
+def test_sigma_target_multi_ref():
+    t = SigmaTarget.model_validate(
+        {"kind": "sigma", "rule_refs": [_multi_ref_rule(1), _multi_ref_rule(2), _multi_ref_rule(3)]}
+    )
+    assert len(t.rule_refs) == 3
+
+
+def test_sigma_target_single_ref_list():
+    t = SigmaTarget.model_validate({"kind": "sigma", "rule_refs": [_multi_ref_rule(1)]})
+    assert len(t.rule_refs) == 1
+
+
+def test_sigma_target_back_compat_singular_rule_ref():
+    """v0.1-v0.4 YAML with rule_ref (singular) still loads."""
+    t = SigmaTarget.model_validate({"kind": "sigma", "rule_ref": _rule_ref()})
+    assert len(t.rule_refs) == 1
+    assert t.rule_refs[0].content_hash == _VALID_HASH
+
+
+def test_sigma_target_rule_refs_both_present_rule_refs_wins():
+    """When both rule_ref and rule_refs present, rule_refs takes precedence."""
+    t = SigmaTarget.model_validate(
+        {"kind": "sigma", "rule_ref": _rule_ref(), "rule_refs": [_multi_ref_rule(1)]}
+    )
+    assert len(t.rule_refs) == 1
+    assert "a0000001" in str(t.rule_refs[0].rule_id)
+
+
+def test_sigma_target_empty_rule_refs_rejected():
+    with pytest.raises(ValidationError):
+        SigmaTarget.model_validate({"kind": "sigma", "rule_refs": []})
+
+
+def test_splunk_target_multi_ref():
+    t = SplunkTarget.model_validate(
+        {
+            "kind": "splunk",
+            "query_refs": [
+                {"name": "Detection A", "app": "search"},
+                {"name": "Detection B", "app": "search"},
+            ],
+        }
+    )
+    assert len(t.query_refs) == 2
+
+
+def test_splunk_target_empty_query_refs_rejected():
+    with pytest.raises(ValidationError):
+        SplunkTarget.model_validate({"kind": "splunk", "query_refs": []})
+
+
+def test_ddr_record_multi_ref_fixture(valid_fixtures_dir):
+    """multi_ref_sigma.yml fixture (3 rule_refs) validates cleanly."""
+    raw = (
+        __import__("ruamel.yaml", fromlist=["YAML"])
+        .YAML(typ="safe")
+        .load((valid_fixtures_dir / "multi_ref_sigma.yml").read_text())
+    )
+    record = DDRRecord.model_validate(raw)
+    assert len(record.target.rule_refs) == 3  # type: ignore[union-attr]
+
+
+def test_ddr_record_v04_back_compat_fixture(valid_fixtures_dir):
+    """v0.4_backcompat_rule_ref.yml (singular rule_ref) validates under v0.5 schema."""
+    raw = (
+        __import__("ruamel.yaml", fromlist=["YAML"])
+        .YAML(typ="safe")
+        .load((valid_fixtures_dir / "v0.4_backcompat_rule_ref.yml").read_text())
+    )
+    record = DDRRecord.model_validate(raw)
+    assert len(record.target.rule_refs) == 1  # type: ignore[union-attr]
+
+
+def test_ddr_version_05_accepted():
+    data = _suppress_record(ddr_version="0.5")
+    record = DDRRecord.model_validate(data)
+    assert record.ddr_version == "0.5"

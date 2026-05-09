@@ -1,0 +1,21 @@
+title: WMI Process Execution - Legacy
+id: a1f2e3d4-0000-0001-0000-000000000001
+status: deprecated
+description: Detects WMI-spawned process execution. Superseded by win_wmi_consolidated_lateral_movement.
+author: SigmaHQ
+date: 2021/03/15
+modified: 2026/04/01
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    ParentImage|endswith: '\WmiPrvSE.exe'
+  condition: selection
+falsepositives:
+  - WMI-based monitoring agents
+  - SCCM software distribution
+level: medium
+tags:
+  - attack.execution
+  - attack.t1047

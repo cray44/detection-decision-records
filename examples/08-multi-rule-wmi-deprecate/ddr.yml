@@ -1,0 +1,45 @@
+ddr_version: "0.5"
+id: 3f8a2b1c-d4e5-6789-abcd-ef0123456789
+title: "Deprecate: Legacy WMI detection rule cluster"
+description: >
+  Three overlapping WMI detection rules (process creation, registry modification, network
+  connection) are being retired in favour of a single consolidated replacement rule
+  win_wmi_consolidated_lateral_movement.yml. The legacy rules produced duplicate alerts
+  on the same lateral movement activity and had overlapping FP classes that were harder
+  to tune individually.
+target:
+  kind: sigma
+  rule_refs:
+    - rule_id: a1f2e3d4-0000-0001-0000-000000000001
+      content_hash: sha256:d0d621b8556c694ddc95b936e4e2f53846bbe6d586318ac88882f49ca5ffb159
+      source: internal
+      path_or_url: sigma-rule-wmi-process.yml
+    - rule_id: b2f3e4d5-0000-0002-0000-000000000002
+      content_hash: sha256:1a7ab002e502ee47b5cf6d0588d2cfd719d1135b12f7eb93fa3d0f332d8b8401
+      source: internal
+      path_or_url: sigma-rule-wmi-registry.yml
+    - rule_id: c3f4e5d6-0000-0003-0000-000000000003
+      content_hash: sha256:5fc6ea0f9dc556189fa7edc317cb9e331e751e11a394f86845b4bb360650bef0
+      source: internal
+      path_or_url: sigma-rule-wmi-network.yml
+decision:
+  kind: deprecate
+  rationale: >
+    All three rules are superseded by win_wmi_consolidated_lateral_movement.yml which
+    unifies the process creation, registry, and network variants into a single rule with
+    a lower FP rate. The consolidated rule also adds a parent-process filter that
+    eliminates the SCCM and monitoring-agent noise that previously required per-rule
+    tuning on each of the three detections.
+  replacement_rule_id: d4f5e6a7-0000-0004-0000-000000000004
+lifecycle:
+  status: active
+  created_on: "2026-05-08T10:00:00Z"
+provenance:
+  author: cray44@example.com
+  approved_by: detection-lead@example.com
+  ticket_refs:
+    - DET-8821
+  evidence:
+    - type: ticket
+      ref: DET-8821
+      note: "Migration ticket tracking the consolidated rule rollout and sign-off."

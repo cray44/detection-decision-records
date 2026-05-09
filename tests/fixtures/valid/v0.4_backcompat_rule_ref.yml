@@ -1,0 +1,29 @@
+ddr_version: "0.4"
+id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+title: "Suppress: PsExec from SCCM (v0.4 back-compat — singular rule_ref)"
+description: "This fixture uses the legacy singular rule_ref field to verify back-compat loading under v0.5."
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: d7a95147-145f-4678-b555-b7a3c9b16830
+    content_hash: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    source: sigmahq
+    path_or_url: "https://github.com/SigmaHQ/sigma/blob/main/rules/windows/process_creation/proc_creation_win_sysinternals_psexec_execution.yml"
+decision:
+  kind: suppress
+  rationale: "SCCM-spawned PsExec is a documented IT Ops workflow."
+  tuning:
+    logsource:
+      category: process_creation
+      product: windows
+    selections:
+      known_fp_sccm:
+        ParentImage|endswith:
+          - \CCM\ccmexec.exe
+    condition: not known_fp_sccm
+lifecycle:
+  status: active
+  created_on: "2026-05-06T09:00:00Z"
+  expires_on: "2027-05-06T00:00:00Z"
+provenance:
+  author: cray44@example.com

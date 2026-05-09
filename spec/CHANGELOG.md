@@ -1,5 +1,23 @@
 # DDR Spec Changelog
 
+## [0.5.0] — 2026-05-08
+
+Additive schema change. All v0.1, v0.2, v0.3, and v0.4 records validate unchanged.
+
+### Added
+- `ddr_version` pattern updated to `^0\.[12345]$`; records with `"0.1"`–`"0.4"` remain valid.
+- **Multi-rule targeting**: `SigmaTarget.rule_refs: list[RuleRef]` (replaces singular `rule_ref`);
+  `SplunkTarget.query_refs: list[SplunkQueryRef]` (replaces singular `query_ref`). Minimum length 1.
+  Back-compat: singular `rule_ref` / `query_ref` fields in existing records are coerced on load.
+- **`ddr list` command**: read-only summary of DDRs by status/target/decision; `REFS` column shows
+  ref count; `--format json` for scripting.
+
+### Back-compat notes
+- v0.1–v0.4 records using singular `rule_ref` or `query_ref` continue to parse without modification.
+  The coercion shim runs at load time; no file edits are required.
+- `export-sigma-filter` `filter.rules` list now contains all rule IDs from `rule_refs` (previously
+  always one). Single-ref records are unaffected.
+
 ## [0.4.0] — 2026-05-06
 
 Additive schema change. All v0.1, v0.2, and v0.3 records validate unchanged.

@@ -40,7 +40,7 @@ def build_sigma_filter(record: DDRRecord) -> dict[str, Any]:
     # not at the top level of the document.
     filter_block: dict[str, Any] = dict(dec.tuning.selections)
     filter_block["condition"] = dec.tuning.condition
-    filter_block["rules"] = [str(record.target.rule_ref.rule_id)]
+    filter_block["rules"] = [str(ref.rule_id) for ref in record.target.rule_refs]  # type: ignore[union-attr]
 
     return {
         "title": dec.tuning.filter_title or f"FP Filter: {record.title}",

@@ -152,18 +152,20 @@ def cmd_new(
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.4",
+            "ddr_version": "0.5",
             "id": str(uuid4()),
             "title": f"Suppress: {rule_title}" if decision_kind == "suppress" else rule_title,
             "description": "",
             "target": {
                 "kind": "sigma",
-                "rule_ref": {
-                    "rule_id": rule_id,
-                    "content_hash": content_hash,
-                    "source": "internal",
-                    "path_or_url": str(sigma_rule),
-                },
+                "rule_refs": [
+                    {
+                        "rule_id": rule_id,
+                        "content_hash": content_hash,
+                        "source": "internal",
+                        "path_or_url": str(sigma_rule),
+                    }
+                ],
             },
             "decision": _build_sigma_decision_scaffold(decision_kind, dict(ls)),
             "lifecycle": {
@@ -196,16 +198,18 @@ def _cmd_new_splunk(
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.4",
+            "ddr_version": "0.5",
             "id": str(uuid4()),
             "title": f"TODO: title for {splunk_name}",
             "description": "TODO: describe this detection and why tuning is needed.",
             "target": {
                 "kind": "splunk",
-                "query_ref": {
-                    "name": splunk_name,
-                    "app": splunk_app,
-                },
+                "query_refs": [
+                    {
+                        "name": splunk_name,
+                        "app": splunk_app,
+                    }
+                ],
             },
             "decision": _build_splunk_decision_scaffold(decision_kind),
             "lifecycle": {
@@ -293,18 +297,20 @@ def _cmd_new_splunk_from_conf(
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.4",
+            "ddr_version": "0.5",
             "id": str(uuid4()),
             "title": f"TODO: title for {name}",
             "description": "TODO: describe this detection and why tuning is needed.",
             "target": {
                 "kind": "splunk",
-                "query_ref": {
-                    "name": name,
-                    "app": app,
-                    "query_hash": query_hash,
-                    "path_or_url": str(conf_path),
-                },
+                "query_refs": [
+                    {
+                        "name": name,
+                        "app": app,
+                        "query_hash": query_hash,
+                        "path_or_url": str(conf_path),
+                    }
+                ],
             },
             "decision": _build_splunk_decision_scaffold(decision_kind),
             "lifecycle": {
@@ -387,6 +393,126 @@ def _build_decision_scaffold(kind: str, logsource: dict) -> dict:
     return _build_sigma_decision_scaffold(kind, logsource)
 
 
+@app.command("list")
+def cmd_list(
+    path: Path = typer.Argument(..., help="DDR file or directory."),
+    status: str | None = typer.Option(
+        None, "--status", help="Filter by lifecycle status: draft | active | retired."
+    ),
+    target: str | None = typer.Option(
+        None, "--target", help="Filter by target.kind (e.g. sigma, splunk)."
+    ),
+    decision: str | None = typer.Option(
+        None, "--decision", help="Filter by decision.kind (e.g. suppress, accept-risk, deprecate)."
+    ),
+    expired: bool = typer.Option(False, "--expired", help="Only show expired active records."),
+    due: bool = typer.Option(False, "--due", help="Only show active records due for review."),
+    fmt: str = typer.Option("table", "--format", help="Output format: table | json."),
+) -> None:
+    """Summarise DDRs in a directory (read-only, always exits 0)."""
+    if not path.exists():
+        typer.echo(f"ERROR: {path} not found", err=True)
+        raise typer.Exit(1)
+
+    now = datetime.now(UTC)
+    rows: list[dict] = []
+
+    for fp in _iter_ddr_files(path):
+        try:
+            loader = _safe_yaml()
+            with open(fp, encoding="utf-8") as fh:
+                raw = loader.load(fh)
+            if not isinstance(raw, dict) or "ddr_version" not in raw:
+                continue
+            record = DDRRecord.model_validate(raw)
+        except Exception:
+            continue
+
+        lc = record.lifecycle
+        refs_count = (
+            len(record.target.rule_refs)
+            if isinstance(record.target, SigmaTarget)
+            else len(record.target.query_refs)
+        )
+
+        row: dict[str, Any] = {
+            "file": str(fp),
+            "id": str(record.id),
+            "title": record.title,
+            "status": lc.status.value,
+            "target": record.target.kind,
+            "decision": record.decision.kind,
+            "refs": refs_count,
+            "expires_on": lc.expires_on.isoformat() if lc.expires_on else None,
+        }
+
+        # compute flags
+        is_expired = False
+        is_due = False
+        if lc.status == LifecycleStatus.active and lc.expires_on:
+            exp = lc.expires_on if lc.expires_on.tzinfo else lc.expires_on.replace(tzinfo=UTC)
+            is_expired = exp < now
+        if lc.status == LifecycleStatus.active and lc.review_cadence_days and lc.last_reviewed_on:
+            rev = (
+                lc.last_reviewed_on
+                if lc.last_reviewed_on.tzinfo
+                else lc.last_reviewed_on.replace(tzinfo=UTC)
+            )
+            is_due = rev + timedelta(days=lc.review_cadence_days) < now
+
+        row["expired"] = is_expired
+        row["due"] = is_due
+
+        # apply filters
+        if status and row["status"] != status:
+            continue
+        if target and row["target"] != target:
+            continue
+        if decision and row["decision"] != decision:
+            continue
+        if expired and not is_expired:
+            continue
+        if due and not is_due:
+            continue
+
+        rows.append(row)
+
+    if fmt == "json":
+        typer.echo(json.dumps(rows, indent=2))
+        return
+
+    if not rows:
+        typer.echo("No DDR records found.")
+        return
+
+    col_w = {"status": 8, "target": 10, "decision": 12, "refs": 4, "id": 38, "title": 42}
+    header = (
+        f"{'STATUS':<{col_w['status']}}  "
+        f"{'TARGET':<{col_w['target']}}  "
+        f"{'DECISION':<{col_w['decision']}}  "
+        f"{'REFS':<{col_w['refs']}}  "
+        f"{'ID':<{col_w['id']}}  "
+        f"TITLE"
+    )
+    typer.echo(header)
+    typer.echo("-" * len(header))
+    for row in rows:
+        flags = ""
+        if row["expired"]:
+            flags += " [EXPIRED]"
+        if row["due"]:
+            flags += " [DUE]"
+        title = (row["title"] or "")[:40] + flags
+        typer.echo(
+            f"{row['status']:<{col_w['status']}}  "
+            f"{row['target']:<{col_w['target']}}  "
+            f"{row['decision']:<{col_w['decision']}}  "
+            f"{row['refs']:<{col_w['refs']}}  "
+            f"{row['id']:<{col_w['id']}}  "
+            f"{title}"
+        )
+
+
 @app.command("validate")
 def cmd_validate(
     path: Path = typer.Argument(..., help="DDR file or directory."),
@@ -456,47 +582,64 @@ def _strict_lint(fp: Path, record: DDRRecord) -> None:
             )
             break
 
+    refs_count = (
+        len(record.target.rule_refs)
+        if isinstance(record.target, SigmaTarget)
+        else len(record.target.query_refs)
+        if isinstance(record.target, SplunkTarget)
+        else 0
+    )
+    if refs_count > 10:
+        typer.echo(
+            f"  WARN  {fp}: record has {refs_count} refs — consider splitting for clarity",
+            err=True,
+        )
+
 
 def _strict_splunk_drift_check(fp: Path, record: DDRRecord) -> None:
     """Warn if query_hash in a Splunk-target DDR doesn't match the local conf."""
     if not isinstance(record.target, SplunkTarget):
         return
-    qref = record.target.query_ref
-    if not qref.query_hash or not qref.path_or_url:
-        return
-    if qref.path_or_url.startswith(("http://", "https://")):
-        typer.echo(
-            f"  NOTE  {fp}: query_hash drift cannot be verified for remote path_or_url",
-            err=True,
-        )
-        return
 
-    conf_path = Path(qref.path_or_url)
-    if not conf_path.is_absolute():
-        conf_path = fp.parent / conf_path
-    if not conf_path.exists():
-        return
-
-    try:
-        from ddr._internal.splunk_conf import (
-            compute_query_hash,
-            extract_stanza,
-            parse_savedsearches_conf,
-        )
-
-        conf = parse_savedsearches_conf(conf_path)
-        stanza = extract_stanza(conf, qref.name)
-        search = stanza.get("search", "").strip()
-        if not search:
-            return
-        current_hash = compute_query_hash(search)
-        if current_hash != qref.query_hash:
+    for idx, qref in enumerate(record.target.query_refs):
+        ref_label = f"query_refs[{idx}]"
+        if not qref.query_hash or not qref.path_or_url:
+            continue
+        if qref.path_or_url.startswith(("http://", "https://")):
             typer.echo(
-                f"  WARN  {fp}: query_hash drift detected — run 'ddr refresh-hash {fp}' to update",
+                f"  NOTE  {fp} {ref_label}: query_hash drift cannot be verified"
+                " for remote path_or_url",
                 err=True,
             )
-    except Exception:
-        pass
+            continue
+
+        conf_path = Path(qref.path_or_url)
+        if not conf_path.is_absolute():
+            conf_path = fp.parent / conf_path
+        if not conf_path.exists():
+            continue
+
+        try:
+            from ddr._internal.splunk_conf import (
+                compute_query_hash,
+                extract_stanza,
+                parse_savedsearches_conf,
+            )
+
+            conf = parse_savedsearches_conf(conf_path)
+            stanza = extract_stanza(conf, qref.name)
+            search = stanza.get("search", "").strip()
+            if not search:
+                continue
+            current_hash = compute_query_hash(search)
+            if current_hash != qref.query_hash:
+                typer.echo(
+                    f"  WARN  {fp} {ref_label}: query_hash drift"
+                    f" — run 'ddr refresh-hash {fp}' to update",
+                    err=True,
+                )
+        except Exception:
+            pass
 
 
 @app.command("expire-check")
@@ -723,31 +866,59 @@ def cmd_refresh_hash(
         return
 
     # --- sigma path ---
-    stored = data.get("target", {}).get("rule_ref", {}).get("path_or_url", "")
-    rule_path = rule or (Path(stored) if stored else None)
+    # Normalise: handle both legacy rule_ref (singular) and new rule_refs (list)
+    target_data = data.get("target", {})
+    has_plural = "rule_refs" in target_data
+    raw_refs: list[dict] = (
+        target_data["rule_refs"] if has_plural else [target_data.get("rule_ref", {})]
+    )
 
-    if not rule_path or not rule_path.exists():
+    if rule and len(raw_refs) > 1:
         typer.echo(
-            f"ERROR: rule file not found at '{rule_path}'. Use --rule to specify the path.",
+            "ERROR: --rule override cannot be used with multi-ref targets; "
+            "edit path_or_url in each ref directly.",
             err=True,
         )
         raise typer.Exit(1)
 
-    new_hash = compute_content_hash(rule_path)
-    old_hash = data.get("target", {}).get("rule_ref", {}).get("content_hash", "")
+    any_changed = False
+    for i, ref in enumerate(raw_refs):
+        ref_label = f"rule_refs[{i}]" if len(raw_refs) > 1 else "rule_ref"
+        stored = ref.get("path_or_url", "")
+        rule_path = rule or (Path(stored) if stored else None)
 
-    if old_hash == new_hash:
-        typer.echo(f"Hash unchanged: {new_hash}")
+        if not rule_path or not rule_path.exists():
+            typer.echo(
+                f"ERROR: {ref_label}: rule file not found at '{rule_path}'. "
+                "Use --rule to specify the path.",
+                err=True,
+            )
+            raise typer.Exit(1)
+
+        new_hash = compute_content_hash(rule_path)
+        old_hash = ref.get("content_hash", "")
+
+        if old_hash == new_hash:
+            typer.echo(f"  {ref_label}: hash unchanged: {new_hash}")
+        else:
+            ref["content_hash"] = new_hash
+            any_changed = True
+            typer.echo(f"  {ref_label}: old: {old_hash}")
+            typer.echo(f"  {ref_label}: new: {new_hash}")
+
+    if not any_changed:
         return
 
-    data["target"]["rule_ref"]["content_hash"] = new_hash
+    # Write back in the same format (singular or plural)
+    if has_plural:
+        data["target"]["rule_refs"] = raw_refs
+    else:
+        data["target"]["rule_ref"] = raw_refs[0]
 
     with open(path, "w", encoding="utf-8") as fh:
         writer.dump(data, fh)
 
     typer.echo(f"Updated {path}")
-    typer.echo(f"  old: {old_hash}")
-    typer.echo(f"  new: {new_hash}")
 
 
 def _cmd_refresh_hash_splunk(
@@ -762,70 +933,98 @@ def _cmd_refresh_hash_splunk(
         parse_savedsearches_conf,
     )
 
-    query_ref = data.get("target", {}).get("query_ref", {})
-    stanza_name = query_ref.get("name", "")
-    stored_path = query_ref.get("path_or_url", "")
+    target_data = data.get("target", {})
+    has_plural = "query_refs" in target_data
+    raw_refs: list[dict] = (
+        target_data["query_refs"] if has_plural else [target_data.get("query_ref", {})]
+    )
 
-    if not stanza_name:
-        typer.echo("ERROR: target.query_ref.name is missing", err=True)
+    if conf_override and len(raw_refs) > 1:
+        typer.echo(
+            "ERROR: --conf override cannot be used with multi-ref targets; "
+            "edit path_or_url in each ref directly.",
+            err=True,
+        )
         raise typer.Exit(1)
 
-    if conf_override:
-        conf_path = conf_override
-    elif stored_path:
-        if stored_path.startswith(("http://", "https://")):
+    any_changed = False
+
+    for i, qref in enumerate(raw_refs):
+        ref_label = f"query_refs[{i}]" if len(raw_refs) > 1 else "query_ref"
+        stanza_name = qref.get("name", "")
+        stored_path = qref.get("path_or_url", "")
+
+        if not stanza_name:
+            typer.echo(f"ERROR: {ref_label}.name is missing", err=True)
+            raise typer.Exit(1)
+
+        if conf_override:
+            conf_path = conf_override
+        elif stored_path:
+            if stored_path.startswith(("http://", "https://")):
+                typer.echo(
+                    f"NOTE: {ref_label}: path_or_url is a remote URL — use --conf to provide a local savedsearches.conf",  # noqa: E501
+                    err=True,
+                )
+                raise typer.Exit(1)
+            conf_path = Path(stored_path)
+            if not conf_path.is_absolute():
+                conf_path = ddr_path.parent / conf_path
+        else:
             typer.echo(
-                "NOTE: path_or_url is a remote URL — use --conf to provide a local savedsearches.conf",  # noqa: E501
+                f"ERROR: {ref_label}: no conf path available. Set path_or_url or use --conf.",
                 err=True,
             )
             raise typer.Exit(1)
-        conf_path = Path(stored_path)
-        if not conf_path.is_absolute():
-            conf_path = ddr_path.parent / conf_path
-    else:
-        typer.echo(
-            "ERROR: no conf path available. Set target.query_ref.path_or_url or use --conf.",
-            err=True,
-        )
-        raise typer.Exit(1)
 
-    if not conf_path.exists():
-        typer.echo(
-            f"ERROR: conf file not found at '{conf_path}'. Use --conf to specify the path.",
-            err=True,
-        )
-        raise typer.Exit(1)
+        if not conf_path.exists():
+            typer.echo(
+                f"ERROR: {ref_label}: conf file not found at '{conf_path}'. Use --conf to specify the path.",  # noqa: E501
+                err=True,
+            )
+            raise typer.Exit(1)
 
-    try:
-        conf = parse_savedsearches_conf(conf_path)
-        stanza = extract_stanza(conf, stanza_name)
-    except KeyError as exc:
-        typer.echo(f"ERROR: {exc}", err=True)
-        raise typer.Exit(1) from exc
-    except Exception as exc:
-        typer.echo(f"ERROR: failed to parse {conf_path}: {exc}", err=True)
-        raise typer.Exit(1) from exc
+        try:
+            conf = parse_savedsearches_conf(conf_path)
+            stanza = extract_stanza(conf, stanza_name)
+        except KeyError as exc:
+            typer.echo(f"ERROR: {ref_label}: {exc}", err=True)
+            raise typer.Exit(1) from exc
+        except Exception as exc:
+            typer.echo(f"ERROR: {ref_label}: failed to parse {conf_path}: {exc}", err=True)
+            raise typer.Exit(1) from exc
 
-    search = stanza.get("search", "").strip()
-    if not search:
-        typer.echo(f"ERROR: stanza {stanza_name!r} has no 'search' key or empty value", err=True)
-        raise typer.Exit(1)
+        search = stanza.get("search", "").strip()
+        if not search:
+            typer.echo(
+                f"ERROR: {ref_label}: stanza {stanza_name!r} has no 'search' key or empty value",
+                err=True,
+            )
+            raise typer.Exit(1)
 
-    new_hash = compute_query_hash(search)
-    old_hash = query_ref.get("query_hash", "")
+        new_hash = compute_query_hash(search)
+        old_hash = qref.get("query_hash", "")
 
-    if old_hash == new_hash:
-        typer.echo(f"Hash unchanged: {new_hash}")
+        if old_hash == new_hash:
+            typer.echo(f"  {ref_label}: hash unchanged: {new_hash}")
+        else:
+            qref["query_hash"] = new_hash
+            any_changed = True
+            typer.echo(f"  {ref_label}: old: {old_hash or '(none)'}")
+            typer.echo(f"  {ref_label}: new: {new_hash}")
+
+    if not any_changed:
         return
 
-    data["target"]["query_ref"]["query_hash"] = new_hash
+    if has_plural:
+        data["target"]["query_refs"] = raw_refs
+    else:
+        data["target"]["query_ref"] = raw_refs[0]
 
     with open(ddr_path, "w", encoding="utf-8") as fh:
         writer.dump(data, fh)
 
     typer.echo(f"Updated {ddr_path}")
-    typer.echo(f"  old: {old_hash or '(none)'}")
-    typer.echo(f"  new: {new_hash}")
 
 
 if __name__ == "__main__":
