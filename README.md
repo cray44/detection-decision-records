@@ -67,6 +67,7 @@ record = DDRRecord.model_validate(yaml.safe_load(open("my_suppression.yml")))
 | Command | Description |
 |---|---|
 | `ddr new <rule_or_conf>` | Scaffold a DDR from a Sigma rule or `savedsearches.conf` |
+| `ddr list [--status] [--target] [--decision]` | Summary table of DDRs by status/target/decision/ref count |
 | `ddr validate [--strict]` | Validate one file or directory; `--strict` adds hash-drift check |
 | `ddr expire-check [--days-ahead N]` | Report expired / due-for-review active records |
 | `ddr export-sigma-filter` | Emit a Sigma Filter YAML from a suppress DDR (Sigma targets) |
@@ -82,11 +83,32 @@ record = DDRRecord.model_validate(yaml.safe_load(open("my_suppression.yml")))
 
 Splunk-native targets have no dependency on sigma-to-spl.
 
+## Multi-rule targeting
+
+One DDR can govern multiple rules of the same target kind. Use `rule_refs` (list) to retire or suppress a cluster of related detections under a single governance decision:
+
+```yaml
+target:
+  kind: sigma
+  rule_refs:
+    - rule_id: a1f2e3d4-...
+      content_hash: sha256:...
+      source: internal
+      path_or_url: rules/wmi-process.yml
+    - rule_id: b2f3e4d5-...
+      content_hash: sha256:...
+      source: internal
+      path_or_url: rules/wmi-registry.yml
+```
+
+v0.1–v0.4 records with the old singular `rule_ref` field continue to load unchanged.
+
 ## Version history
 
 | Version | Key addition |
 |---|---|
-| **v0.4** | `savedsearches.conf` parser, SPL canonicalization, `query_hash` automation, `refresh-hash` Splunk branch, `validate --strict` drift check |
+| **v0.5** | Multi-rule targeting (`rule_refs`/`query_refs`), `ddr list` command, back-compat shim for v0.1–v0.4 |
+| v0.4 | `savedsearches.conf` parser, SPL canonicalization, `query_hash` automation, `refresh-hash` Splunk branch |
 | v0.3 | Splunk-native target (`target.kind: splunk`), `SplunkTuning`, `export-splunk` Splunk-native path |
 | v0.2 | `ddr export-splunk` (Sigma targets via sigma-to-spl), `--format savedsearches` |
 | v0.1 | JSON Schema, `ddr new/validate/expire-check/export-sigma-filter/refresh-hash`, 5 worked examples |
@@ -96,9 +118,9 @@ Splunk-native targets have no dependency on sigma-to-spl.
 ```
 spec/        Human-readable spec + JSON Schema (generated, CI-checked for drift)
 src/ddr/     Python package — models, CLI, exporters, internal utilities
-examples/    7 worked examples (PsExec, Nessus, schtasks, AWS root, WMI legacy,
-             Splunk-native savedsearch, multi-stanza Splunk Add-on)
-tests/       157 unit + integration tests + invalid-fixture corpus
+examples/    8 worked examples (PsExec, Nessus, schtasks, AWS root, WMI legacy,
+             Splunk-native savedsearch, multi-stanza Splunk Add-on, multi-rule WMI deprecation)
+tests/       185 unit + integration tests + invalid-fixture corpus
 docs/        Design documents for each release
 ```
 

@@ -1,6 +1,6 @@
 # Contributing to DDR
 
-> DDR is alpha. The spec is stable at v0.4 but may evolve. External contributions are welcome — see locked decisions in the design docs before opening a spec-change PR.
+> DDR is alpha. The spec is stable at v0.5 but may evolve. External contributions are welcome — see locked decisions in the design docs before opening a spec-change PR.
 
 ## Before opening an issue or PR
 
@@ -34,7 +34,7 @@ Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`. 
 A PR is mergeable when:
 - `ruff check` and `ruff format --check` pass.
 - `pytest` passes on Linux and Windows (CI matrix).
-- Schema drift check passes (regenerated schema matches checked-in `spec/ddr-v0.1.schema.json`).
+- Schema drift check passes (regenerated schema matches checked-in `spec/ddr-v0.5.schema.json`).
 - Every example in `examples/` validates.
 - If the PR changes the schema: spec doc updated, `spec/CHANGELOG.md` entry added, migration note included.
 

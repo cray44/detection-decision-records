@@ -112,13 +112,13 @@ The exported Sigma Filter is standard — no changes to pySigma, SIEM backends, 
 
 | Area | Status |
 |---|---|
-| JSON Schema (`spec/ddr-v0.1.schema.json`) | Done — generated from Pydantic v2 models |
-| CLI (`ddr new`, `validate`, `expire-check`, `export-sigma-filter`) | Done |
-| 7 worked examples against real SigmaHQ rules | Done |
-| 157 unit + integration tests | Passing |
+| JSON Schema (`spec/ddr-v0.5.schema.json`) | Done — generated from Pydantic v2 models |
+| CLI (`ddr new`, `list`, `validate`, `expire-check`, `export-sigma-filter`, `refresh-hash`) | Done |
+| 8 worked examples against real SigmaHQ rules | Done |
+| 185 unit + integration tests | Passing |
 | Apache-2.0 license | Aligned with SigmaHQ |
 
-Current schema version is v0.4; it extends v0.1 with Splunk-native target support (for teams running proprietary detections alongside Sigma). The Sigma-native path is the core of the spec; Splunk support is additive.
+Current schema version is v0.5; it extends v0.1 with Splunk-native target support (v0.3), automated `savedsearches.conf` parsing and `query_hash` (v0.4), and multi-rule targeting with a `ddr list` summary command (v0.5). The Sigma-native path is the core of the spec; Splunk support is additive.
 
 ---
 
