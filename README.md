@@ -127,7 +127,8 @@ v0.1–v0.4 records with the old singular `rule_ref` field continue to load unch
 
 | Version | Key addition |
 |---|---|
-| **v0.6** | Elastic Security target (`target.kind: elastic`), `export-elastic-exception`, Elastic canonicalization v1 |
+| **v0.7** | KQL targets (`kql-sentinel`, `kql-m365d`), `export-kql`, Sentinel + M365D canonicalization v1 |
+| v0.6 | Elastic Security target (`target.kind: elastic`), `export-elastic-exception`, Elastic canonicalization v1 |
 | v0.5 | Multi-rule targeting (`rule_refs`/`query_refs`), `ddr list` command, back-compat shim for v0.1–v0.4 |
 | v0.4 | `savedsearches.conf` parser, SPL canonicalization, `query_hash` automation, `refresh-hash` Splunk branch |
 | v0.3 | Splunk-native target (`target.kind: splunk`), `SplunkTuning`, `export-splunk` Splunk-native path |

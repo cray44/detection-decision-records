@@ -1,5 +1,23 @@
 # DDR Spec Changelog
 
+## [0.7.0] — 2026-05-11
+
+Design doc complete. Awaiting IMPLEMENT signal.
+
+### Planned
+- `ddr_version` pattern updated to `^0\.[1234567]$`
+- **KQL targets**: `target.kind: "kql-sentinel"` and `"kql-m365d"` — new `KqlSentinelTarget`, `KqlM365DTarget` with `query_refs: list[...]` (plural shape, min length 1).
+- **`KqlSentinelQueryRef`**: `rule_id`, `name`, optional `workspace`, optional `content_hash`, optional `path_or_url`, `source`.
+- **`KqlM365DQueryRef`**: same shape as Sentinel; optional `table` instead of `workspace`.
+- **`KqlSentinelTuning` / `KqlM365DTuning`**: `kind`, `kusto_filter` (Kusto WHERE clause, required non-empty), optional `filter_title`, optional `filter_description`.
+- **`kusto_filter` not `kql_filter`**: disambiguates Kusto (Sentinel/M365D) from Elastic's Kibana Query Language (`kql_filter`).
+- **Sentinel canonicalization algorithm v1**: strip volatile ARM fields (`etag`, `lastModifiedUtc`, `lastRunTime`, `nextRunTime`, envelope `id`/`name`/`type`/`systemData`) → sort keys → compact JSON → SHA-256.
+- **M365D canonicalization algorithm v1**: strip volatile Graph API fields (`id`, `createdDateTime`, `lastModifiedDateTime`, `lastRunTime`, `createdBy`, `lastModifiedBy`) → sort keys → compact JSON → SHA-256.
+- **`ddr export-kql`**: emits Kusto `| where not (<kusto_filter>)` fragment with DDR title and expiry in comments; handles both `kql-sentinel` and `kql-m365d` targets.
+- **`ddr new --target kql-sentinel/kql-m365d`**: scaffolds DDR with `kusto_filter` placeholder; no extension inference (both are `.json`).
+- **`ddr refresh-hash`** (KQL branches): Sentinel and M365D hash iteration over `query_refs`.
+- **`ddr validate --strict`** (KQL drift check): warns per-ref on hash drift for both KQL kinds.
+
 ## [0.6.0] — 2026-05-08
 
 Additive schema change. All v0.1, v0.2, v0.3, v0.4, and v0.5 records validate unchanged.
