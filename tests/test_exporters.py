@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from ddr.exporters.kql_fragment import build_kql_fragment, export_kql_fragment
 from ddr.exporters.sigma_filter import build_sigma_filter, export_to_yaml
 from ddr.models.record import DDRRecord
 
@@ -293,3 +294,174 @@ def test_export_to_ndjson_writes_file(tmp_path):
     assert out.exists()
     content = out.read_text(encoding="utf-8").strip()
     assert _json.loads(content) == _json.loads(ndjson)
+
+
+# --- KQL fragment exporter ---
+
+
+def _kql_sentinel_suppress_data(**overrides) -> dict:
+    base = {
+        "ddr_version": "0.7",
+        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "title": "Suppress: Sentinel brute-force",
+        "description": "Red team IP suppression.",
+        "target": {
+            "kind": "kql-sentinel",
+            "query_refs": [
+                {"rule_id": "sentinel-rule-001", "name": "Brute force rule", "source": "internal"}
+            ],
+        },
+        "decision": {
+            "kind": "suppress",
+            "rationale": "Authorized red team activity.",
+            "tuning": {
+                "kind": "kql-sentinel",
+                "filter_title": "Exclude red team IPs",
+                "kusto_filter": 'IPAddress has_any ("10.50.0.0/16")',
+            },
+        },
+        "lifecycle": {
+            "status": "active",
+            "created_on": _NOW.isoformat(),
+            "activated_on": _NOW.isoformat(),
+            "expires_on": _FUTURE.isoformat(),
+        },
+        "provenance": {"author": "alice@example.com"},
+    }
+    base.update(overrides)
+    return base
+
+
+def _kql_m365d_suppress_data(**overrides) -> dict:
+    base = {
+        "ddr_version": "0.7",
+        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+        "title": "Suppress: M365D LOLBin admin",
+        "description": "Admin service account suppression.",
+        "target": {
+            "kind": "kql-m365d",
+            "query_refs": [
+                {"rule_id": "m365d-lolbin-001", "name": "LOLBin regsvr32", "source": "internal"}
+            ],
+        },
+        "decision": {
+            "kind": "suppress",
+            "rationale": "IT admin accounts using approved tooling.",
+            "tuning": {
+                "kind": "kql-m365d",
+                "kusto_filter": (
+                    'InitiatingProcessAccountName has_any ("svc-patching", "svc-deploy")'
+                ),
+            },
+        },
+        "lifecycle": {
+            "status": "active",
+            "created_on": _NOW.isoformat(),
+            "activated_on": _NOW.isoformat(),
+            "expires_on": _FUTURE.isoformat(),
+        },
+        "provenance": {"author": "bob@example.com"},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_kql_sentinel_fragment_shape():
+    record = DDRRecord.model_validate(_kql_sentinel_suppress_data())
+    fragment = build_kql_fragment(record)
+    assert "| where not (" in fragment
+    assert 'IPAddress has_any ("10.50.0.0/16")' in fragment
+    assert "// DDR:" in fragment
+    assert "// Expires:" in fragment
+
+
+def test_kql_m365d_fragment_shape():
+    record = DDRRecord.model_validate(_kql_m365d_suppress_data())
+    fragment = build_kql_fragment(record)
+    assert "| where not (" in fragment
+    assert 'InitiatingProcessAccountName has_any ("svc-patching", "svc-deploy")' in fragment
+
+
+def test_kql_fragment_includes_title():
+    record = DDRRecord.model_validate(_kql_sentinel_suppress_data())
+    fragment = build_kql_fragment(record)
+    assert "Suppress: Sentinel brute-force" in fragment
+
+
+def test_kql_fragment_includes_expiry():
+    record = DDRRecord.model_validate(_kql_sentinel_suppress_data())
+    fragment = build_kql_fragment(record)
+    assert "2026" in fragment
+
+
+def test_kql_fragment_complex_expression_emitted_as_is():
+    """Complex Kusto expressions (has_any, in~, functions) are emitted verbatim."""
+    record = DDRRecord.model_validate(
+        _kql_sentinel_suppress_data(
+            decision={
+                "kind": "suppress",
+                "rationale": "Complex filter.",
+                "tuning": {
+                    "kind": "kql-sentinel",
+                    "kusto_filter": (
+                        'InitiatingProcessParentFileName in~ ("svchost.exe", "services.exe")'
+                        ' and AccountDomain =~ "CORP"'
+                    ),
+                },
+            }
+        )
+    )
+    fragment = build_kql_fragment(record)
+    assert 'in~ ("svchost.exe", "services.exe")' in fragment
+
+
+def test_kql_fragment_non_kql_target_raises():
+    sigma_data = {
+        "ddr_version": "0.1",
+        "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "title": "Sigma suppress",
+        "description": "d",
+        "target": {
+            "kind": "sigma",
+            "rule_ref": {
+                "rule_id": "d7a95147-145f-4678-b555-b7a3c9b16830",
+                "content_hash": _VALID_HASH,
+                "source": "sigmahq",
+                "path_or_url": "https://example.com/rule.yml",
+            },
+        },
+        "decision": {
+            "kind": "suppress",
+            "rationale": "FP.",
+            "tuning": {
+                "logsource": {"category": "process_creation", "product": "windows"},
+                "selections": {"fp": {"Image|endswith": ["\\svchost.exe"]}},
+                "condition": "not fp",
+            },
+        },
+        "lifecycle": {
+            "status": "active",
+            "created_on": _NOW.isoformat(),
+            "expires_on": _FUTURE.isoformat(),
+        },
+        "provenance": {"author": "alice@example.com"},
+    }
+    record = DDRRecord.model_validate(sigma_data)
+    with pytest.raises(ValueError, match="kql-sentinel or kql-m365d"):
+        build_kql_fragment(record)
+
+
+def test_kql_fragment_non_suppress_decision_raises():
+    data = _kql_sentinel_suppress_data()
+    data["decision"] = {"kind": "accept-risk", "rationale": "Accepted."}
+    record = DDRRecord.model_validate(data)
+    with pytest.raises(ValueError, match="accept-risk"):
+        build_kql_fragment(record)
+
+
+def test_kql_fragment_writes_to_file(tmp_path):
+    record = DDRRecord.model_validate(_kql_sentinel_suppress_data())
+    out = tmp_path / "filter.kql"
+    fragment = export_kql_fragment(record, output=out)
+    assert out.exists()
+    assert out.read_text(encoding="utf-8") == fragment

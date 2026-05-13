@@ -1,0 +1,22 @@
+{
+  "id": "det-lolbin-regsvr32-001",
+  "displayName": "LOLBin — regsvr32.exe with suspicious parent",
+  "description": "Detects regsvr32.exe spawned by an unusual parent process, which may indicate a LOLBin abuse technique.",
+  "queryCondition": "DeviceProcessEvents\n| where FileName =~ \"regsvr32.exe\"\n| where not (InitiatingProcessFileName in~ (\"msiexec.exe\", \"setup.exe\"))\n| where not (InitiatingProcessAccountName has_any (\"svc-patching\", \"svc-deploy\"))",
+  "queryFrequency": "PT1H",
+  "queryPeriod": "P1D",
+  "severity": "Medium",
+  "isEnabled": true,
+  "detectionAction": {
+    "alertTitle": "Suspicious regsvr32.exe execution",
+    "category": "DefenseEvasion",
+    "recommendedActions": "Investigate the process tree and parent process. Check if the regsvr32.exe call was initiated by a known software deployment tool."
+  },
+  "mitreTechniques": ["T1218.010"],
+  "createdDateTime": "2025-08-01T10:00:00Z",
+  "lastModifiedDateTime": "2026-04-01T14:30:00Z",
+  "lastRunTime": "2026-05-13T08:55:00Z",
+  "nextRunTime": "2026-05-13T09:55:00Z",
+  "createdBy": "alice@corp.example.com",
+  "lastModifiedBy": "bob@corp.example.com"
+}

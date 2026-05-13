@@ -1,0 +1,32 @@
+{
+  "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-sentinel/providers/Microsoft.OperationalInsights/workspaces/corp-sentinel/providers/Microsoft.SecurityInsights/alertRules/sign-ins-from-ips-disabled-accounts",
+  "name": "sign-ins-from-ips-disabled-accounts",
+  "type": "Microsoft.SecurityInsights/alertRules",
+  "etag": "\"00001234-0000-0200-0000-662abc120000\"",
+  "systemData": {
+    "createdAt": "2024-03-01T10:00:00Z",
+    "lastModifiedAt": "2026-04-15T08:00:00Z"
+  },
+  "properties": {
+    "displayName": "Sign-ins from IPs that attempt sign-ins to disabled accounts",
+    "description": "Identifies IPs with a high volume of failed sign-in attempts to disabled accounts. These may indicate brute-force or password spray activity.",
+    "severity": "Medium",
+    "enabled": true,
+    "query": "SigninLogs\n| where ResultType == \"50057\"\n| summarize FailedAttempts = count() by IPAddress, bin(TimeGenerated, 1h)\n| where FailedAttempts > 10",
+    "queryFrequency": "PT1H",
+    "queryPeriod": "PT1H",
+    "triggerOperator": "GreaterThan",
+    "triggerThreshold": 0,
+    "suppressionDuration": "PT1H",
+    "suppressionEnabled": false,
+    "tactics": ["CredentialAccess"],
+    "techniques": ["T1110"],
+    "lastModifiedUtc": "2026-04-15T08:00:00Z",
+    "lastRunTime": "2026-05-13T09:00:00Z",
+    "nextRunTime": "2026-05-13T10:00:00Z",
+    "lastDeploymentStatus": "Success",
+    "lastDeploymentStatusMessage": "Deployed successfully.",
+    "alertRuleTemplateName": "abc12345-1234-1234-1234-abcdef123456",
+    "templateVersion": "1.0.3"
+  }
+}

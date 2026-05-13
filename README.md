@@ -66,6 +66,27 @@ ddr refresh-hash my_suppression.yml        # recomputes hash, ignores volatile K
 ddr validate --strict my_suppression.yml   # warns on hash drift
 ```
 
+### Microsoft Sentinel target
+
+```bash
+# ARM export from Sentinel portal or az CLI — explicit --target required (both SIEM exports are .json)
+ddr new --target kql-sentinel sentinel-rule.json --output my_suppression.yml
+
+# fill rationale, kusto_filter, lifecycle dates
+ddr validate my_suppression.yml
+ddr export-kql my_suppression.yml   # Kusto | where not (...) fragment
+```
+
+### M365D Advanced Hunting target
+
+```bash
+ddr new --target kql-m365d m365d-detection.json --output my_suppression.yml
+
+# fill rationale, kusto_filter, lifecycle dates
+ddr validate my_suppression.yml
+ddr export-kql my_suppression.yml
+```
+
 ### Lifecycle management
 
 ```bash
@@ -84,13 +105,14 @@ record = DDRRecord.model_validate(yaml.safe_load(open("my_suppression.yml")))
 
 | Command | Description |
 |---|---|
-| `ddr new <rule_or_conf>` | Scaffold a DDR from a Sigma rule, `savedsearches.conf`, or Elastic rule NDJSON |
+| `ddr new <rule_or_conf>` | Scaffold a DDR from a Sigma rule, `savedsearches.conf`, Elastic NDJSON, or KQL JSON |
 | `ddr list [--status] [--target] [--decision]` | Summary table of DDRs by status/target/decision/ref count |
 | `ddr validate [--strict]` | Validate one file or directory; `--strict` adds hash-drift check |
 | `ddr expire-check [--days-ahead N]` | Report expired / due-for-review active records |
 | `ddr export-sigma-filter` | Emit a Sigma Filter YAML from a suppress DDR (Sigma targets) |
 | `ddr export-splunk [--format savedsearches]` | Emit a SPL `NOT (...)` clause |
 | `ddr export-elastic-exception [--list-id]` | Emit a Kibana exception list item NDJSON (Elastic targets) |
+| `ddr export-kql` | Emit a Kusto `\| where not (...)` fragment (Sentinel and M365D targets) |
 | `ddr refresh-hash [--rule / --conf]` | Recompute content/query hash after a cosmetic-only change |
 
 ## Target kinds
@@ -99,9 +121,11 @@ record = DDRRecord.model_validate(yaml.safe_load(open("my_suppression.yml")))
 |---|---|---|---|
 | `sigma` | A Sigma rule exists | `content_hash` (SHA-256 of canonicalized YAML) | `export-sigma-filter` |
 | `splunk` | Detection lives only in Splunk — no Sigma rule | `query_hash` (SHA-256 of canonicalized SPL) | `export-splunk` |
-| `elastic` | Detection is an Elastic Security rule (EQL/KQL/threshold) | `content_hash` (SHA-256 of canonicalized rule JSON, volatile fields stripped) | `export-elastic-exception` |
+| `elastic` | Detection is an Elastic Security rule (EQL/KQL/threshold) | `content_hash` (SHA-256 of canonicalized rule JSON, volatile Kibana fields stripped) | `export-elastic-exception` |
+| `kql-sentinel` | Detection is a Microsoft Sentinel Analytics Rule | `content_hash` (SHA-256 of canonicalized ARM JSON, volatile Sentinel fields stripped) | `export-kql` |
+| `kql-m365d` | Detection is an M365D Advanced Hunting custom detection | `content_hash` (SHA-256 of canonicalized Graph API JSON, volatile Defender fields stripped) | `export-kql` |
 
-Splunk and Elastic native targets have no dependency on sigma-to-spl.
+Splunk, Elastic, Sentinel, and M365D native targets have no dependency on sigma-to-spl.
 
 ## Multi-rule targeting
 
@@ -140,10 +164,11 @@ v0.1–v0.4 records with the old singular `rule_ref` field continue to load unch
 ```
 spec/        Human-readable spec + JSON Schema (generated, CI-checked for drift)
 src/ddr/     Python package — models, CLI, exporters, internal utilities
-examples/    9 worked examples (PsExec, Nessus, schtasks, AWS root, WMI legacy,
+examples/    11 worked examples (PsExec, Nessus, schtasks, AWS root, WMI legacy,
              Splunk-native savedsearch, multi-stanza Splunk Add-on, multi-rule WMI deprecation,
-             Elastic Security AV scanner suppress)
-tests/       248 unit + integration tests + invalid-fixture corpus
+             Elastic Security AV scanner suppress, Sentinel brute-force suppress,
+             M365D LOLBin admin suppress)
+tests/       313 unit + integration tests + invalid-fixture corpus
 docs/        Design documents for each release
 ```
 

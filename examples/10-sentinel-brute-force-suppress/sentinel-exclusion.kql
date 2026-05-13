@@ -1,0 +1,4 @@
+// DDR: Suppress: Sentinel brute-force alert for authorized red team IP range
+// Rationale: Authorized red team uses IP range 10.50.0.0/16 exclusively during approved pentest windows (calendar invite + ticket SOC
+// Expires: 2027-01-15
+| where not (IPAddress has_any ("10.50.0.0"))

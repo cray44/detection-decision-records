@@ -1,0 +1,29 @@
+ddr_version: "0.7"
+id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+title: "Suppress: M365D LOLBin alert for IT admin service accounts"
+description: "IT admin service accounts using regsvr32.exe to install an approved COM component triggers LOLBin detection."
+target:
+  kind: kql-m365d
+  query_refs:
+    - rule_id: "lolbin-regsvr32-suspicious-parent"
+      name: "LOLBin regsvr32 suspicious parent process"
+      table: DeviceProcessEvents
+      source: internal
+      path_or_url: "m365d-detection.json"
+decision:
+  kind: suppress
+  rationale: "IT admin accounts svc-patching and svc-deploy use regsvr32.exe as part of approved COM component installation. Confirmed with IT and change management."
+  tuning:
+    kind: kql-m365d
+    filter_title: "Exclude IT admin service accounts"
+    kusto_filter: 'InitiatingProcessAccountName has_any ("svc-patching", "svc-deploy")'
+lifecycle:
+  status: active
+  created_on: "2026-05-11T09:00:00Z"
+  activated_on: "2026-05-11T10:00:00Z"
+  expires_on: "2027-05-11T10:00:00Z"
+  review_cadence_days: 180
+provenance:
+  author: bob@example.com
+  ticket_refs:
+    - SOC-9002

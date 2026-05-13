@@ -1,0 +1,4 @@
+// DDR: Suppress: M365D LOLBin regsvr32 alert for IT admin service accounts
+// Rationale: IT admin service accounts svc-patching and svc-deploy use regsvr32.exe to install an approved COM component (CorpPatchAg
+// Expires: 2027-05-11
+| where not (InitiatingProcessAccountName has_any ("svc-patching", "svc-deploy"))

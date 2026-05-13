@@ -1068,3 +1068,189 @@ def test_export_elastic_exception_non_suppress_fails(valid_fixtures_dir):
     )
     # elastic_suppress.yml uses suppress decision, should pass
     assert result.exit_code == 0
+
+
+# --- export-kql ---
+
+
+def test_export_kql_sentinel_stdout(valid_fixtures_dir):
+    result = runner.invoke(
+        app, ["export-kql", str(valid_fixtures_dir / "kql_sentinel_suppress.yml")]
+    )
+    assert result.exit_code == 0
+    assert "| where not (" in result.output
+    assert "// DDR:" in result.output
+
+
+def test_export_kql_m365d_stdout(valid_fixtures_dir):
+    result = runner.invoke(
+        app, ["export-kql", str(valid_fixtures_dir / "kql_m365d_suppress.yml")]
+    )
+    assert result.exit_code == 0
+    assert "| where not (" in result.output
+
+
+def test_export_kql_writes_file(valid_fixtures_dir, tmp_path):
+    out = tmp_path / "filter.kql"
+    result = runner.invoke(
+        app,
+        ["export-kql", str(valid_fixtures_dir / "kql_sentinel_suppress.yml"), "--output", str(out)],
+    )
+    assert result.exit_code == 0
+    assert out.exists()
+    assert "| where not (" in out.read_text(encoding="utf-8")
+
+
+def test_export_kql_wrong_target_fails(valid_fixtures_dir):
+    result = runner.invoke(
+        app, ["export-kql", str(valid_fixtures_dir / "suppress_basic.yml")]
+    )
+    assert result.exit_code == 1
+    assert "kql-sentinel or kql-m365d" in result.output
+
+
+def test_export_kql_nonexistent_path():
+    result = runner.invoke(app, ["export-kql", "/nonexistent/path.yml"])
+    assert result.exit_code == 1
+
+
+# --- ddr new --target kql-sentinel / kql-m365d ---
+
+
+def test_new_kql_sentinel_scaffold(tmp_path):
+    result = runner.invoke(app, ["new", "--target", "kql-sentinel"])
+    assert result.exit_code == 0
+    assert "kql-sentinel" in result.output
+    assert "query_refs" in result.output
+    assert "kusto_filter" in result.output
+
+
+def test_new_kql_m365d_scaffold(tmp_path):
+    result = runner.invoke(app, ["new", "--target", "kql-m365d"])
+    assert result.exit_code == 0
+    assert "kql-m365d" in result.output
+    assert "kusto_filter" in result.output
+
+
+def test_new_kql_sentinel_from_json(tmp_path):
+    import json
+    sentinel_json = tmp_path / "sentinel_rule.json"
+    sentinel_json.write_text(
+        json.dumps({
+            "name": "my-rule",
+            "properties": {
+                "displayName": "My Sentinel Rule",
+                "query": "SecurityEvent | where EventID == 4625",
+                "severity": "High",
+            }
+        }),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["new", "--target", "kql-sentinel", str(sentinel_json)])
+    assert result.exit_code == 0
+    assert "kql-sentinel" in result.output
+    assert "My Sentinel Rule" in result.output
+
+
+def test_new_kql_invalid_target_fails():
+    result = runner.invoke(app, ["new", "--target", "kql-unknown"])
+    assert result.exit_code == 1
+    assert "ERROR" in result.output
+
+
+# --- ddr list with KQL records ---
+
+
+def test_list_kql_sentinel_shows_target(valid_fixtures_dir):
+    result = runner.invoke(app, ["list", str(valid_fixtures_dir)])
+    assert result.exit_code == 0
+    assert "kql-sentinel" in result.output
+
+
+def test_list_kql_m365d_shows_target(valid_fixtures_dir):
+    result = runner.invoke(app, ["list", str(valid_fixtures_dir)])
+    assert result.exit_code == 0
+    assert "kql-m365d" in result.output
+
+
+# --- ddr refresh-hash KQL branches ---
+
+
+def test_refresh_hash_kql_sentinel_updates(tmp_path):
+    import json
+    rule_file = tmp_path / "sentinel_rule.json"
+    rule_file.write_text(
+        json.dumps({
+            "properties": {
+                "displayName": "Test",
+                "query": "SecurityEvent | where EventID == 4625",
+                "severity": "High",
+            }
+        }),
+        encoding="utf-8",
+    )
+    ddr_file = tmp_path / "ddr.yml"
+    ddr_file.write_text(
+        f"""ddr_version: "0.7"
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+title: "Test"
+description: "Test."
+target:
+  kind: kql-sentinel
+  query_refs:
+    - rule_id: rule-001
+      name: Test
+      source: internal
+      path_or_url: {rule_file}
+      content_hash: "sha256:{"0" * 64}"
+decision:
+  kind: suppress
+  rationale: "FP."
+  tuning:
+    kind: kql-sentinel
+    kusto_filter: 'IPAddress =~ "10.0.0.1"'
+lifecycle:
+  status: active
+  created_on: "2026-01-01T00:00:00Z"
+  expires_on: "2027-01-01T00:00:00Z"
+provenance:
+  author: alice@example.com
+""",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["refresh-hash", str(ddr_file)])
+    assert result.exit_code == 0
+    assert "new:" in result.output
+
+
+def test_refresh_hash_kql_m365d_no_path_skips(tmp_path):
+    ddr_file = tmp_path / "ddr.yml"
+    ddr_file.write_text(
+        """ddr_version: "0.7"
+id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+title: "Test M365D"
+description: "Test."
+target:
+  kind: kql-m365d
+  query_refs:
+    - rule_id: m365d-001
+      name: Test Detection
+      source: internal
+decision:
+  kind: suppress
+  rationale: "FP."
+  tuning:
+    kind: kql-m365d
+    kusto_filter: 'AccountName has "svc-deploy"'
+lifecycle:
+  status: active
+  created_on: "2026-01-01T00:00:00Z"
+  expires_on: "2027-01-01T00:00:00Z"
+provenance:
+  author: bob@example.com
+""",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["refresh-hash", str(ddr_file)])
+    assert result.exit_code == 0
+    assert "no path_or_url" in result.output or "skipping" in result.output

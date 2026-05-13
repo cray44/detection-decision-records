@@ -17,6 +17,12 @@ from ddr.models.record import (
     ElasticTuning,
     Evidence,
     EvidenceType,
+    KqlM365DQueryRef,
+    KqlM365DTarget,
+    KqlM365DTuning,
+    KqlSentinelQueryRef,
+    KqlSentinelTarget,
+    KqlSentinelTuning,
     Lifecycle,
     LifecycleStatus,
     LogSource,
@@ -806,3 +812,218 @@ def test_ddr_record_elastic_fixture(valid_fixtures_dir):
     record = DDRRecord.model_validate(raw)
     assert record.target.kind == "elastic"
     assert len(record.target.query_refs) == 2  # type: ignore[union-attr]
+
+
+# --- KQL Sentinel models ---
+
+
+def _kql_sentinel_ref(**kwargs) -> dict:
+    return {"rule_id": "sentinel-rule-001", "name": "Test Sentinel Rule", "source": "internal",
+            **kwargs}
+
+
+def _kql_sentinel_suppress_record(**overrides) -> dict:
+    base = {
+        "ddr_version": "0.7",
+        "id": str(_DDR_ID),
+        "title": "Suppress: Sentinel test",
+        "description": "KQL sentinel test record.",
+        "target": {
+            "kind": "kql-sentinel",
+            "query_refs": [_kql_sentinel_ref()],
+        },
+        "decision": {
+            "kind": "suppress",
+            "rationale": "Authorized activity.",
+            "tuning": {
+                "kind": "kql-sentinel",
+                "kusto_filter": 'IPAddress has_any ("10.50.0.0/16")',
+            },
+        },
+        "lifecycle": {
+            "status": "active",
+            "created_on": _NOW.isoformat(),
+            "activated_on": _NOW.isoformat(),
+            "expires_on": _FUTURE.isoformat(),
+        },
+        "provenance": {"author": "alice@example.com"},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_kql_sentinel_target_valid():
+    t = KqlSentinelTarget.model_validate({"query_refs": [_kql_sentinel_ref()]})
+    assert t.kind == "kql-sentinel"
+    assert len(t.query_refs) == 1
+
+
+def test_kql_sentinel_target_empty_refs_rejected():
+    with pytest.raises(ValidationError):
+        KqlSentinelTarget.model_validate({"query_refs": []})
+
+
+def test_kql_sentinel_query_ref_optional_workspace():
+    ref = KqlSentinelQueryRef.model_validate(_kql_sentinel_ref(workspace="my-workspace"))
+    assert ref.workspace == "my-workspace"
+
+
+def test_kql_sentinel_query_ref_optional_content_hash():
+    ref = KqlSentinelQueryRef.model_validate(_kql_sentinel_ref(content_hash=_VALID_HASH))
+    assert ref.content_hash == _VALID_HASH
+
+
+def test_kql_sentinel_query_ref_bad_hash_rejected():
+    with pytest.raises(ValidationError, match="content_hash"):
+        KqlSentinelQueryRef.model_validate(_kql_sentinel_ref(content_hash="not-a-hash"))
+
+
+def test_kql_sentinel_tuning_valid():
+    t = KqlSentinelTuning.model_validate(
+        {"kind": "kql-sentinel", "kusto_filter": 'IPAddress =~ "10.0.0.1"'}
+    )
+    assert t.kusto_filter == 'IPAddress =~ "10.0.0.1"'
+
+
+def test_kql_sentinel_tuning_blank_filter_rejected():
+    with pytest.raises(ValidationError, match="kusto_filter"):
+        KqlSentinelTuning.model_validate({"kind": "kql-sentinel", "kusto_filter": "   "})
+
+
+def test_kql_sentinel_suppress_record_valid():
+    record = DDRRecord.model_validate(_kql_sentinel_suppress_record())
+    assert record.target.kind == "kql-sentinel"
+    assert record.decision.kind == "suppress"
+
+
+def test_kql_sentinel_kind_mismatch_rejected():
+    data = _kql_sentinel_suppress_record()
+    data["decision"]["tuning"]["kind"] = "kql-m365d"
+    with pytest.raises(ValidationError, match=r"tuning\.kind"):
+        DDRRecord.model_validate(data)
+
+
+# --- KQL M365D models ---
+
+
+def _kql_m365d_ref(**kwargs) -> dict:
+    return {"rule_id": "m365d-detection-001", "name": "Test M365D Detection", "source": "internal",
+            **kwargs}
+
+
+def _kql_m365d_suppress_record(**overrides) -> dict:
+    base = {
+        "ddr_version": "0.7",
+        "id": str(_DDR_ID),
+        "title": "Suppress: M365D test",
+        "description": "KQL m365d test record.",
+        "target": {
+            "kind": "kql-m365d",
+            "query_refs": [_kql_m365d_ref()],
+        },
+        "decision": {
+            "kind": "suppress",
+            "rationale": "Authorized admin activity.",
+            "tuning": {
+                "kind": "kql-m365d",
+                "kusto_filter": 'InitiatingProcessAccountName has_any ("svc-patching")',
+            },
+        },
+        "lifecycle": {
+            "status": "active",
+            "created_on": _NOW.isoformat(),
+            "activated_on": _NOW.isoformat(),
+            "expires_on": _FUTURE.isoformat(),
+        },
+        "provenance": {"author": "bob@example.com"},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_kql_m365d_target_valid():
+    t = KqlM365DTarget.model_validate({"query_refs": [_kql_m365d_ref()]})
+    assert t.kind == "kql-m365d"
+    assert len(t.query_refs) == 1
+
+
+def test_kql_m365d_target_empty_refs_rejected():
+    with pytest.raises(ValidationError):
+        KqlM365DTarget.model_validate({"query_refs": []})
+
+
+def test_kql_m365d_query_ref_optional_table():
+    ref = KqlM365DQueryRef.model_validate(_kql_m365d_ref(table="DeviceProcessEvents"))
+    assert ref.table == "DeviceProcessEvents"
+
+
+def test_kql_m365d_query_ref_bad_hash_rejected():
+    with pytest.raises(ValidationError, match="content_hash"):
+        KqlM365DQueryRef.model_validate(_kql_m365d_ref(content_hash="bad"))
+
+
+def test_kql_m365d_tuning_valid():
+    t = KqlM365DTuning.model_validate(
+        {"kind": "kql-m365d", "kusto_filter": 'AccountName has "svc-deploy"'}
+    )
+    assert t.kusto_filter == 'AccountName has "svc-deploy"'
+
+
+def test_kql_m365d_tuning_blank_filter_rejected():
+    with pytest.raises(ValidationError, match="kusto_filter"):
+        KqlM365DTuning.model_validate({"kind": "kql-m365d", "kusto_filter": ""})
+
+
+def test_kql_m365d_suppress_record_valid():
+    record = DDRRecord.model_validate(_kql_m365d_suppress_record())
+    assert record.target.kind == "kql-m365d"
+    assert record.decision.kind == "suppress"
+
+
+def test_kql_m365d_kind_mismatch_rejected():
+    data = _kql_m365d_suppress_record()
+    data["decision"]["tuning"]["kind"] = "kql-sentinel"
+    with pytest.raises(ValidationError, match=r"tuning\.kind"):
+        DDRRecord.model_validate(data)
+
+
+def test_ddr_version_07_accepted():
+    record = DDRRecord.model_validate(_kql_sentinel_suppress_record(ddr_version="0.7"))
+    assert record.ddr_version == "0.7"
+
+
+def test_ddr_version_08_rejected():
+    with pytest.raises(ValidationError):
+        DDRRecord.model_validate(_kql_sentinel_suppress_record(ddr_version="0.8"))
+
+
+def test_kql_sentinel_fixture(valid_fixtures_dir):
+    raw = (
+        __import__("ruamel.yaml", fromlist=["YAML"])
+        .YAML(typ="safe")
+        .load((valid_fixtures_dir / "kql_sentinel_suppress.yml").read_text())
+    )
+    record = DDRRecord.model_validate(raw)
+    assert record.target.kind == "kql-sentinel"
+    assert len(record.target.query_refs) == 1  # type: ignore[union-attr]
+
+
+def test_kql_m365d_fixture(valid_fixtures_dir):
+    raw = (
+        __import__("ruamel.yaml", fromlist=["YAML"])
+        .YAML(typ="safe")
+        .load((valid_fixtures_dir / "kql_m365d_suppress.yml").read_text())
+    )
+    record = DDRRecord.model_validate(raw)
+    assert record.target.kind == "kql-m365d"
+    assert len(record.target.query_refs) == 1  # type: ignore[union-attr]
+
+
+def test_v01_fixture_still_valid_under_v07(valid_fixtures_dir):
+    raw = (
+        __import__("ruamel.yaml", fromlist=["YAML"])
+        .YAML(typ="safe")
+        .load((valid_fixtures_dir / "suppress_basic.yml").read_text())
+    )
+    record = DDRRecord.model_validate(raw)
+    assert record.ddr_version == "0.1"

@@ -1,0 +1,49 @@
+ddr_version: "0.7"
+id: c3d4e5f6-a7b8-9012-cdef-123456789012
+title: "Suppress: Sentinel brute-force alert for authorized red team IP range"
+description: >
+  The "Sign-ins from IPs that attempt sign-ins to disabled accounts" Sentinel
+  Analytics Rule fires on the corporate red team's dedicated IP range (10.50.0.0/16)
+  during scheduled pentest windows. These alerts are expected FPs; the red team
+  operates under an approved Rules of Engagement document.
+target:
+  kind: kql-sentinel
+  query_refs:
+    - rule_id: sign-ins-from-ips-disabled-accounts
+      name: Sign-ins from IPs that attempt sign-ins to disabled accounts
+      workspace: corp-sentinel-workspace
+      content_hash: sha256:4bac0905ee32d4fa4a2baa6d92f6b4f1458639963d5a176e60afd40e247bf36c
+      path_or_url: sentinel-rule.json
+      source: internal
+decision:
+  kind: suppress
+  rationale: >
+    Authorized red team uses IP range 10.50.0.0/16 exclusively during approved
+    pentest windows (calendar invite + ticket SOC-9001). Suppressing during the
+    pentest window avoids analyst alert fatigue. Expiry set to pentest contract
+    end date; must be reviewed before renewal.
+  tuning:
+    kind: kql-sentinel
+    filter_title: Exclude authorized red team IP range
+    filter_description: >
+      Suppress alerts from the dedicated red team IP range during approved pentest
+      windows. Range is static and allocated by IT Security.
+    kusto_filter: 'IPAddress has_any ("10.50.0.0")'
+lifecycle:
+  status: active
+  created_on: "2026-05-11T09:00:00Z"
+  activated_on: "2026-05-11T10:00:00Z"
+  expires_on: "2027-01-15T00:00:00Z"
+  review_cadence_days: 180
+  last_reviewed_on: "2026-05-11T10:00:00Z"
+provenance:
+  author: alice@corp.example.com
+  reviewers:
+    - soc-lead@corp.example.com
+  approved_by: soc-lead@corp.example.com
+  ticket_refs:
+    - SOC-9001
+  evidence:
+    - type: ticket
+      ref: SOC-9001
+      note: Rules of Engagement for Q2 2026 pentest; red team IP range documented in §3.2

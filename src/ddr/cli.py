@@ -19,6 +19,8 @@ from ddr.exporters.sigma_filter import export_to_yaml
 from ddr.models.record import (
     DDRRecord,
     ElasticTarget,
+    KqlM365DTarget,
+    KqlSentinelTarget,
     LifecycleStatus,
     SigmaTarget,
     SplunkTarget,
@@ -93,7 +95,10 @@ def cmd_new(
         "suppress", "--decision", "-d", help="Decision type: suppress | accept-risk | deprecate."
     ),
     target_kind: str = typer.Option(
-        "sigma", "--target", "-t", help="Target kind: sigma | splunk | elastic."
+        "sigma",
+        "--target",
+        "-t",
+        help="Target kind: sigma | splunk | elastic | kql-sentinel | kql-m365d.",
     ),
     splunk_name: str | None = typer.Option(
         None, "--name", help="Splunk savedsearch stanza name (--target splunk)."
@@ -104,13 +109,17 @@ def cmd_new(
         help="Splunk app context (default: search; overridden by path inference).",
     ),
 ) -> None:
-    """Scaffold a DDR from a Sigma rule, savedsearches.conf, or Elastic rule NDJSON."""
+    """Scaffold a DDR from a Sigma rule, savedsearches.conf, Elastic rule NDJSON, or KQL JSON."""
     # Infer --target elastic when a .ndjson file is provided
     if sigma_rule is not None and sigma_rule.suffix.lower() == ".ndjson":
         target_kind = "elastic"
 
-    if target_kind not in ("sigma", "splunk", "elastic"):
-        typer.echo("ERROR: --target must be sigma | splunk | elastic", err=True)
+    _VALID_TARGETS = ("sigma", "splunk", "elastic", "kql-sentinel", "kql-m365d")
+    if target_kind not in _VALID_TARGETS:
+        typer.echo(
+            "ERROR: --target must be sigma | splunk | elastic | kql-sentinel | kql-m365d",
+            err=True,
+        )
         raise typer.Exit(1)
 
     if decision_kind not in ("suppress", "accept-risk", "deprecate"):
@@ -122,6 +131,15 @@ def cmd_new(
             ndjson_path=sigma_rule,
             output=output,
             decision_kind=decision_kind,
+        )
+        return
+
+    if target_kind in ("kql-sentinel", "kql-m365d"):
+        _cmd_new_kql(
+            json_path=sigma_rule,
+            output=output,
+            decision_kind=decision_kind,
+            target_kind=target_kind,
         )
         return
 
@@ -267,6 +285,104 @@ def _cmd_new_elastic(
     )
 
     _write_scaffold(scaffold, output)
+
+
+def _cmd_new_kql(
+    json_path: Path | None,
+    output: Path | None,
+    decision_kind: str,
+    target_kind: str,
+) -> None:
+    """Scaffold a DDR for a Sentinel or M365D KQL-based detection."""
+    rule_id = "TODO-FILL-IN-RULE-ID"
+    rule_name = "TODO: rule name"
+    path_or_url_val: str | None = None
+
+    if json_path is not None:
+        if not json_path.exists():
+            typer.echo(f"ERROR: {json_path} not found", err=True)
+            raise typer.Exit(1)
+
+        try:
+            text = json_path.read_text(encoding="utf-8-sig")
+            obj = json.loads(text)
+            if isinstance(obj, list) and obj:
+                obj = obj[0]
+            if isinstance(obj, dict):
+                # ARM envelope
+                body = obj.get("properties", obj)
+                rule_id = (
+                    body.get("displayName")
+                    or obj.get("name")
+                    or obj.get("id")
+                    or rule_id
+                )
+                rule_name = body.get("displayName") or obj.get("name") or rule_name
+                # M365D shape
+                rule_id = body.get("id") or body.get("displayName") or rule_id
+                rule_name = body.get("displayName") or body.get("name") or rule_name
+        except Exception:
+            pass  # fall back to placeholders
+
+        path_or_url_val = str(json_path)
+
+    optional_field = "workspace" if target_kind == "kql-sentinel" else "table"
+    scaffold = _strip_none(
+        {
+            "ddr_version": "0.7",
+            "id": str(uuid4()),
+            "title": f"Suppress: {rule_name}" if decision_kind == "suppress" else rule_name,
+            "description": "TODO: describe this detection and why tuning is needed.",
+            "target": {
+                "kind": target_kind,
+                "query_refs": [
+                    {
+                        "rule_id": rule_id,
+                        "name": rule_name,
+                        optional_field: None,
+                        "source": "internal",
+                        "path_or_url": path_or_url_val,
+                    }
+                ],
+            },
+            "decision": _build_kql_decision_scaffold(decision_kind, target_kind),
+            "lifecycle": {
+                "status": "draft",
+                "created_on": _now_utc(),
+            },
+            "provenance": {
+                "author": "",
+                "ticket_refs": [],
+            },
+        }
+    )
+
+    _write_scaffold(scaffold, output)
+
+
+def _build_kql_decision_scaffold(kind: str, target_kind: str) -> dict:
+    if kind == "suppress":
+        return {
+            "kind": "suppress",
+            "rationale": "TODO: explain why this is an acceptable false positive",
+            "tuning": {
+                "kind": target_kind,
+                "filter_title": "TODO: descriptive filter name",
+                "kusto_filter": (
+                    "TODO: Kusto WHERE clause, e.g. InitiatingProcessParentFileName"
+                    ' =~ "msiexec.exe"'
+                ),
+            },
+        }
+    if kind == "accept-risk":
+        return {
+            "kind": "accept-risk",
+            "rationale": "TODO: explain why you are accepting this risk",
+        }
+    return {
+        "kind": "deprecate",
+        "rationale": "TODO: explain why this rule is being deprecated",
+    }
 
 
 def _build_elastic_decision_scaffold(kind: str) -> dict:
@@ -658,6 +774,8 @@ def cmd_validate(
                 _strict_lint(fp, record)
                 _strict_splunk_drift_check(fp, record)
                 _strict_elastic_drift_check(fp, record)
+                _strict_sentinel_drift_check(fp, record)
+                _strict_m365d_drift_check(fp, record)
 
         except ValidationError as exc:
             failed += 1
@@ -692,11 +810,12 @@ def _strict_lint(fp: Path, record: DDRRecord) -> None:
             )
             break
 
+    _query_ref_targets = (SplunkTarget, ElasticTarget, KqlSentinelTarget, KqlM365DTarget)
     refs_count = (
         len(record.target.rule_refs)
         if isinstance(record.target, SigmaTarget)
         else len(record.target.query_refs)
-        if isinstance(record.target, (SplunkTarget, ElasticTarget))
+        if isinstance(record.target, _query_ref_targets)
         else 0
     )
     if refs_count > 10:
@@ -779,6 +898,78 @@ def _strict_elastic_drift_check(fp: Path, record: DDRRecord) -> None:
             from ddr._internal.elastic_hash import compute_elastic_hash
 
             current_hash = compute_elastic_hash(ndjson_path)
+            if current_hash != qref.content_hash:
+                typer.echo(
+                    f"  WARN  {fp} {ref_label}: content_hash drift"
+                    f" — run 'ddr refresh-hash {fp}' to update",
+                    err=True,
+                )
+        except Exception:
+            pass
+
+
+def _strict_sentinel_drift_check(fp: Path, record: DDRRecord) -> None:
+    if not isinstance(record.target, KqlSentinelTarget):
+        return
+
+    for idx, qref in enumerate(record.target.query_refs):
+        ref_label = f"query_refs[{idx}]"
+        if not qref.content_hash or not qref.path_or_url:
+            continue
+        if qref.path_or_url.startswith(("http://", "https://")):
+            typer.echo(
+                f"  NOTE  {fp} {ref_label}: content_hash drift cannot be verified"
+                " for remote path_or_url",
+                err=True,
+            )
+            continue
+
+        json_path = Path(qref.path_or_url)
+        if not json_path.is_absolute():
+            json_path = fp.parent / json_path
+        if not json_path.exists():
+            continue
+
+        try:
+            from ddr._internal.sentinel_hash import compute_sentinel_hash
+
+            current_hash = compute_sentinel_hash(json_path)
+            if current_hash != qref.content_hash:
+                typer.echo(
+                    f"  WARN  {fp} {ref_label}: content_hash drift"
+                    f" — run 'ddr refresh-hash {fp}' to update",
+                    err=True,
+                )
+        except Exception:
+            pass
+
+
+def _strict_m365d_drift_check(fp: Path, record: DDRRecord) -> None:
+    if not isinstance(record.target, KqlM365DTarget):
+        return
+
+    for idx, qref in enumerate(record.target.query_refs):
+        ref_label = f"query_refs[{idx}]"
+        if not qref.content_hash or not qref.path_or_url:
+            continue
+        if qref.path_or_url.startswith(("http://", "https://")):
+            typer.echo(
+                f"  NOTE  {fp} {ref_label}: content_hash drift cannot be verified"
+                " for remote path_or_url",
+                err=True,
+            )
+            continue
+
+        json_path = Path(qref.path_or_url)
+        if not json_path.is_absolute():
+            json_path = fp.parent / json_path
+        if not json_path.exists():
+            continue
+
+        try:
+            from ddr._internal.m365d_hash import compute_m365d_hash
+
+            current_hash = compute_m365d_hash(json_path)
             if current_hash != qref.content_hash:
                 typer.echo(
                     f"  WARN  {fp} {ref_label}: content_hash drift"
@@ -1016,6 +1207,14 @@ def cmd_refresh_hash(
         _cmd_refresh_hash_elastic(path, data, writer, rule)
         return
 
+    if target_kind == "kql-sentinel":
+        _cmd_refresh_hash_kql(path, data, writer, rule, target_kind)
+        return
+
+    if target_kind == "kql-m365d":
+        _cmd_refresh_hash_kql(path, data, writer, rule, target_kind)
+        return
+
     # --- sigma path ---
     # Normalise: handle both legacy rule_ref (singular) and new rule_refs (list)
     target_data = data.get("target", {})
@@ -1247,6 +1446,79 @@ def _cmd_refresh_hash_elastic(
     typer.echo(f"Updated {ddr_path}")
 
 
+def _cmd_refresh_hash_kql(
+    ddr_path: Path,
+    data: dict,
+    writer: Any,
+    rule_override: Path | None,
+    target_kind: str,
+) -> None:
+    if target_kind == "kql-sentinel":
+        from ddr._internal.sentinel_hash import compute_sentinel_hash as _compute_hash
+    else:
+        from ddr._internal.m365d_hash import compute_m365d_hash as _compute_hash  # type: ignore[assignment]  # noqa: I001
+
+    target_data = data.get("target", {})
+    raw_refs: list[dict] = target_data.get("query_refs", [])
+
+    if rule_override and len(raw_refs) > 1:
+        typer.echo(
+            "ERROR: --rule override cannot be used with multi-ref targets; "
+            "edit path_or_url in each ref directly.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    any_changed = False
+
+    for i, qref in enumerate(raw_refs):
+        ref_label = f"query_refs[{i}]" if len(raw_refs) > 1 else "query_refs[0]"
+        stored_path = qref.get("path_or_url", "")
+
+        if rule_override:
+            json_path = rule_override
+        elif stored_path:
+            if stored_path.startswith(("http://", "https://")):
+                typer.echo(
+                    f"  {ref_label}: skipping remote ref — update content_hash manually",
+                    err=True,
+                )
+                continue
+            json_path = Path(stored_path)
+            if not json_path.is_absolute():
+                json_path = ddr_path.parent / json_path
+        else:
+            typer.echo(f"  {ref_label}: no path_or_url set for ref[{i}]; skipping", err=True)
+            continue
+
+        if not json_path.exists():
+            typer.echo(f"  {ref_label}: rule file not found at '{json_path}'", err=True)
+            continue
+
+        try:
+            new_hash = _compute_hash(json_path)
+        except Exception as exc:
+            typer.echo(f"  {ref_label}: failed to compute hash: {exc}", err=True)
+            continue
+
+        old_hash = qref.get("content_hash", "")
+        if old_hash == new_hash:
+            typer.echo(f"  {ref_label}: hash unchanged: {new_hash}")
+        else:
+            qref["content_hash"] = new_hash
+            any_changed = True
+            typer.echo(f"  {ref_label}: old: {old_hash or '(none)'}")
+            typer.echo(f"  {ref_label}: new: {new_hash}")
+
+    if not any_changed:
+        return
+
+    data["target"]["query_refs"] = raw_refs
+    with open(ddr_path, "w", encoding="utf-8") as fh:
+        writer.dump(data, fh)
+    typer.echo(f"Updated {ddr_path}")
+
+
 @app.command("export-elastic-exception")
 def cmd_export_elastic_exception(
     path: Path = typer.Argument(..., help="DDR file with decision.kind == 'suppress'."),
@@ -1303,6 +1575,54 @@ def cmd_export_elastic_exception(
         typer.echo(f"Exported Elastic exception to {output}")
     else:
         typer.echo(ndjson)
+
+
+@app.command("export-kql")
+def cmd_export_kql(
+    path: Path = typer.Argument(..., help="DDR file with decision.kind == 'suppress'."),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Write .kql fragment here (default: stdout)."
+    ),
+) -> None:
+    """Emit a Kusto | where not (...) fragment from a kql-sentinel or kql-m365d suppress DDR."""
+    if not path.exists():
+        typer.echo(f"ERROR: {path} not found", err=True)
+        raise typer.Exit(1)
+
+    try:
+        record = _load_record(path)
+    except (ValidationError, ValueError) as exc:
+        typer.echo(f"ERROR: {path}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if record.target.kind not in ("kql-sentinel", "kql-m365d"):
+        typer.echo(
+            f"ERROR: export-kql requires target.kind kql-sentinel or kql-m365d, "
+            f"got '{record.target.kind}'",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if not isinstance(record.decision, SuppressDecision):
+        typer.echo(
+            f"ERROR: decision.kind is '{record.decision.kind}', expected 'suppress'. "
+            "accept-risk and deprecate decisions have no KQL fragment to export.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    try:
+        from ddr.exporters.kql_fragment import export_kql_fragment
+
+        fragment = export_kql_fragment(record, output=output)
+    except Exception as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if output:
+        typer.echo(f"Exported KQL fragment to {output}")
+    else:
+        typer.echo(fragment, nl=False)
 
 
 if __name__ == "__main__":

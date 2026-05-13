@@ -1,0 +1,50 @@
+ddr_version: "0.7"
+id: d4e5f6a7-b8c9-0123-defa-234567890123
+title: "Suppress: M365D LOLBin regsvr32 alert for IT admin service accounts"
+description: >
+  The "LOLBin — regsvr32.exe with suspicious parent" M365D Advanced Hunting custom
+  detection fires on IT admin service accounts (svc-patching, svc-deploy) that use
+  regsvr32.exe to install an approved COM component as part of the standard patch
+  deployment workflow. Confirmed with IT and change management (ticket SOC-9002).
+target:
+  kind: kql-m365d
+  query_refs:
+    - rule_id: det-lolbin-regsvr32-001
+      name: "LOLBin — regsvr32.exe with suspicious parent"
+      table: DeviceProcessEvents
+      content_hash: sha256:0424f002425a361cbc3c00642046ee6eac601a0a6a10bad63083d6486432c035
+      path_or_url: m365d-detection.json
+      source: internal
+decision:
+  kind: suppress
+  rationale: >
+    IT admin service accounts svc-patching and svc-deploy use regsvr32.exe to
+    install an approved COM component (CorpPatchAgent.dll) during the patch cycle.
+    This activity is documented in change management ticket SOC-9002 and is performed
+    exclusively by these two service accounts. Suppressing their activity avoids
+    alert noise during the weekly patch window.
+  tuning:
+    kind: kql-m365d
+    filter_title: Exclude IT admin service accounts from LOLBin alert
+    filter_description: >
+      Service accounts svc-patching and svc-deploy are authorized to call regsvr32.exe
+      during the standard patch deployment workflow. All other accounts remain in scope.
+    kusto_filter: 'InitiatingProcessAccountName has_any ("svc-patching", "svc-deploy")'
+lifecycle:
+  status: active
+  created_on: "2026-05-11T09:00:00Z"
+  activated_on: "2026-05-11T10:00:00Z"
+  expires_on: "2027-05-11T00:00:00Z"
+  review_cadence_days: 180
+  last_reviewed_on: "2026-05-11T10:00:00Z"
+provenance:
+  author: bob@corp.example.com
+  reviewers:
+    - soc-lead@corp.example.com
+  approved_by: soc-lead@corp.example.com
+  ticket_refs:
+    - SOC-9002
+  evidence:
+    - type: ticket
+      ref: SOC-9002
+      note: Change management ticket confirming svc-patching and svc-deploy are authorized to call regsvr32.exe during patch cycles

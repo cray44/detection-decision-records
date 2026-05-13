@@ -1,10 +1,10 @@
 # Worked Examples
 
-9 canonical DDRs spanning all decision kinds and all three target kinds. Each example is a directory containing:
+11 canonical DDRs spanning all decision kinds and all five target kinds. Each example is a directory containing:
 
-- Source rule file — `sigma-rule.yml` (Sigma targets), `savedsearch.conf` (Splunk targets), or `elastic-rule.ndjson` (Elastic targets)
+- Source rule file — `sigma-rule.yml` (Sigma targets), `savedsearch.conf` (Splunk targets), `elastic-rule.ndjson` (Elastic), `sentinel-rule.json` (Sentinel ARM export), or `m365d-detection.json` (M365D Graph API export)
 - `ddr.yml` — the Detection Decision Record
-- Exported artifact — `sigma-filter.yml` (Sigma suppress), or `elastic-exception.ndjson` (Elastic suppress)
+- Exported artifact — `sigma-filter.yml`, `elastic-exception.ndjson`, or `.kql` fragment (suppress decisions)
 - `README.md` — FP scenario explanation and *why this decision over alternatives*
 
 CI validates every `ddr.yml` and re-exports suppress filters on each run. If the spec can't express an example, the spec is wrong.
@@ -22,6 +22,8 @@ CI validates every `ddr.yml` and re-exports suppress filters on each run. If the
 | 7 | `07-splunk-multi-stanza-app/` | splunk | Multi-stanza TA conf | `suppress` |
 | 8 | `08-multi-rule-wmi-deprecate/` | sigma (3 refs) | Legacy rule cluster retirement | `deprecate` |
 | 9 | `09-elastic-av-scanner-suppress/` | elastic | Nessus scanner triggers Defender AV rule | `suppress` |
+| 10 | `10-sentinel-brute-force-suppress/` | kql-sentinel | Authorized red team IP range in brute-force rule | `suppress` |
+| 11 | `11-m365d-lolbin-suppress/` | kql-m365d | IT admin service accounts trigger LOLBin detection | `suppress` |
 
 ## Quickstart
 
@@ -37,11 +39,13 @@ List all examples with ref counts:
 ddr list examples/
 ```
 
-Re-export a Sigma filter or Elastic exception:
+Re-export a suppress artifact:
 
 ```bash
 ddr export-sigma-filter examples/01-psexec-admin-suppression/ddr.yml
 ddr export-elastic-exception examples/09-elastic-av-scanner-suppress/ddr.yml
+ddr export-kql examples/10-sentinel-brute-force-suppress/ddr.yml
+ddr export-kql examples/11-m365d-lolbin-suppress/ddr.yml
 ```
 
 Check for expired records:

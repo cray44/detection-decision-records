@@ -23,6 +23,12 @@ __all__ = [
     "ElasticTuning",
     "Evidence",
     "EvidenceType",
+    "KqlM365DQueryRef",
+    "KqlM365DTarget",
+    "KqlM365DTuning",
+    "KqlSentinelQueryRef",
+    "KqlSentinelTarget",
+    "KqlSentinelTuning",
     "Lifecycle",
     "LifecycleStatus",
     "LogSource",
@@ -172,7 +178,92 @@ class ElasticTarget(BaseModel):
     query_refs: list[ElasticQueryRef] = Field(..., min_length=1)
 
 
-Target = Annotated[SigmaTarget | SplunkTarget | ElasticTarget, Field(discriminator="kind")]
+class KqlSentinelQueryRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str = Field(..., description="ARM resource name or GUID assigned by Sentinel")
+    name: str
+    workspace: str | None = None
+    content_hash: str | None = Field(default=None, description="sha256 of canonicalized rule JSON")
+    path_or_url: str | None = None
+    source: RuleSource
+
+    @field_validator("content_hash")
+    @classmethod
+    def validate_hash_format(cls, v: str | None) -> str | None:
+        if v is not None and not _CONTENT_HASH_RE.match(v):
+            raise ValueError("content_hash must be 'sha256:<64 lowercase hex chars>'")
+        return v
+
+
+class KqlSentinelTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["kql-sentinel"] = "kql-sentinel"
+    query_refs: list[KqlSentinelQueryRef] = Field(..., min_length=1)
+
+
+class KqlSentinelTuning(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["kql-sentinel"] = "kql-sentinel"
+    filter_title: str | None = None
+    filter_description: str | None = None
+    kusto_filter: str = Field(..., description="Kusto WHERE clause for FP exclusion")
+
+    @field_validator("kusto_filter")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("kusto_filter must not be empty or whitespace")
+        return v
+
+
+class KqlM365DQueryRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str = Field(..., description="M365D custom detection ID or display name")
+    name: str
+    table: str | None = None
+    content_hash: str | None = Field(default=None, description="sha256 of canonicalized rule JSON")
+    path_or_url: str | None = None
+    source: RuleSource
+
+    @field_validator("content_hash")
+    @classmethod
+    def validate_hash_format(cls, v: str | None) -> str | None:
+        if v is not None and not _CONTENT_HASH_RE.match(v):
+            raise ValueError("content_hash must be 'sha256:<64 lowercase hex chars>'")
+        return v
+
+
+class KqlM365DTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["kql-m365d"] = "kql-m365d"
+    query_refs: list[KqlM365DQueryRef] = Field(..., min_length=1)
+
+
+class KqlM365DTuning(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["kql-m365d"] = "kql-m365d"
+    filter_title: str | None = None
+    filter_description: str | None = None
+    kusto_filter: str = Field(..., description="Kusto WHERE clause for FP exclusion")
+
+    @field_validator("kusto_filter")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("kusto_filter must not be empty or whitespace")
+        return v
+
+
+Target = Annotated[
+    SigmaTarget | SplunkTarget | ElasticTarget | KqlSentinelTarget | KqlM365DTarget,
+    Field(discriminator="kind"),
+]
 
 
 class Evidence(BaseModel):
@@ -295,7 +386,10 @@ class ElasticTuning(BaseModel):
         return v
 
 
-TuningUnion = Annotated[SigmaTuning | SplunkTuning | ElasticTuning, Field(discriminator="kind")]
+TuningUnion = Annotated[
+    SigmaTuning | SplunkTuning | ElasticTuning | KqlSentinelTuning | KqlM365DTuning,
+    Field(discriminator="kind"),
+]
 
 
 class SuppressDecision(BaseModel):
@@ -347,7 +441,7 @@ class DDRRecord(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ddr_version: Annotated[str, Field(pattern=r"^0\.[123456]$")]
+    ddr_version: Annotated[str, Field(pattern=r"^0\.[1234567]$")]
     id: UUID
     target: Target
     title: str

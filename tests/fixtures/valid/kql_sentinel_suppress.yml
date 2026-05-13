@@ -1,0 +1,29 @@
+ddr_version: "0.7"
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+title: "Suppress: Sentinel brute-force alert for red team IP range"
+description: "Authorized red team IP range triggers sign-in anomaly rule during scheduled pentests."
+target:
+  kind: kql-sentinel
+  query_refs:
+    - rule_id: "sign-ins-from-ips-disabled-accounts"
+      name: "Sign-ins from IPs that attempt sign-ins to disabled accounts"
+      workspace: "corp-sentinel-workspace"
+      source: internal
+      path_or_url: "sentinel-rule.json"
+decision:
+  kind: suppress
+  rationale: "Red team pentests use a dedicated IP range (10.50.0.0/16). Alerts from this range during scheduled test windows are authorized FPs."
+  tuning:
+    kind: kql-sentinel
+    filter_title: "Exclude authorized red team IP range"
+    kusto_filter: 'IPAddress has_any ("10.50.0.0/16")'
+lifecycle:
+  status: active
+  created_on: "2026-05-11T09:00:00Z"
+  activated_on: "2026-05-11T10:00:00Z"
+  expires_on: "2027-05-11T10:00:00Z"
+  review_cadence_days: 180
+provenance:
+  author: alice@example.com
+  ticket_refs:
+    - SOC-9001

@@ -1,22 +1,26 @@
 # DDR Spec Changelog
 
-## [0.7.0] — 2026-05-11
+## [0.7.0] — 2026-05-13
 
-Design doc complete. Awaiting IMPLEMENT signal.
+Additive schema change. All v0.1–v0.6 records validate unchanged.
 
-### Planned
-- `ddr_version` pattern updated to `^0\.[1234567]$`
+### Added
+- `ddr_version` pattern updated to `^0\.[1234567]$`; records with `"0.1"`–`"0.6"` remain valid.
 - **KQL targets**: `target.kind: "kql-sentinel"` and `"kql-m365d"` — new `KqlSentinelTarget`, `KqlM365DTarget` with `query_refs: list[...]` (plural shape, min length 1).
-- **`KqlSentinelQueryRef`**: `rule_id`, `name`, optional `workspace`, optional `content_hash`, optional `path_or_url`, `source`.
-- **`KqlM365DQueryRef`**: same shape as Sentinel; optional `table` instead of `workspace`.
+- **`KqlSentinelQueryRef`**: `rule_id` (ARM name or GUID), `name`, optional `workspace`, optional `content_hash` (`sha256:<64 hex>`), optional `path_or_url`, `source`.
+- **`KqlM365DQueryRef`**: same shape; optional `table` instead of `workspace` (primary Advanced Hunting table).
 - **`KqlSentinelTuning` / `KqlM365DTuning`**: `kind`, `kusto_filter` (Kusto WHERE clause, required non-empty), optional `filter_title`, optional `filter_description`.
-- **`kusto_filter` not `kql_filter`**: disambiguates Kusto (Sentinel/M365D) from Elastic's Kibana Query Language (`kql_filter`).
-- **Sentinel canonicalization algorithm v1**: strip volatile ARM fields (`etag`, `lastModifiedUtc`, `lastRunTime`, `nextRunTime`, envelope `id`/`name`/`type`/`systemData`) → sort keys → compact JSON → SHA-256.
-- **M365D canonicalization algorithm v1**: strip volatile Graph API fields (`id`, `createdDateTime`, `lastModifiedDateTime`, `lastRunTime`, `createdBy`, `lastModifiedBy`) → sort keys → compact JSON → SHA-256.
-- **`ddr export-kql`**: emits Kusto `| where not (<kusto_filter>)` fragment with DDR title and expiry in comments; handles both `kql-sentinel` and `kql-m365d` targets.
-- **`ddr new --target kql-sentinel/kql-m365d`**: scaffolds DDR with `kusto_filter` placeholder; no extension inference (both are `.json`).
-- **`ddr refresh-hash`** (KQL branches): Sentinel and M365D hash iteration over `query_refs`.
-- **`ddr validate --strict`** (KQL drift check): warns per-ref on hash drift for both KQL kinds.
+- **`kusto_filter` not `kql_filter`**: disambiguates Kusto (Sentinel/M365D) from Elastic's Kibana Query Language (`kql_filter` on `ElasticTuning`).
+- **Sentinel canonicalization algorithm v1** (`spec/ddr-v0.7.md §3`): unwrap ARM envelope → strip volatile fields (`etag`, `lastModifiedUtc`, `lastRunTime`, `nextRunTime`, `lastDeploymentStatus*`, `alertRuleTemplateName`, `templateVersion`, envelope `id`/`name`/`type`/`systemData`) → sort keys → compact JSON → SHA-256 → `sha256:` prefix.
+- **M365D canonicalization algorithm v1** (`spec/ddr-v0.7.md §4`): handle array bulk export (first element) → strip volatile fields (`id`, `createdDateTime`, `lastModifiedDateTime`, `lastRunTime`, `nextRunTime`, `isEnabled`, `createdBy`, `lastModifiedBy`) → sort keys → compact JSON → SHA-256 → `sha256:` prefix.
+- **`ddr export-kql`**: emits Kusto `| where not (<kusto_filter>)` fragment with DDR title, rationale snippet, and expiry in comments. Handles both `kql-sentinel` and `kql-m365d` targets. Exits 1 on non-KQL targets and non-suppress decisions.
+- **`ddr new --target kql-sentinel/kql-m365d`**: scaffolds DDR with `kusto_filter` placeholder. No `.json` extension inference (ambiguous with Elastic). Extracts `rule_id` and `name` from source JSON if provided.
+- **`ddr refresh-hash`** (KQL branches): iterates `query_refs`, applies appropriate algorithm, prints per-ref drift status.
+- **`ddr validate --strict`** (KQL drift check): warns per-ref on hash drift for both KQL kinds; warns on ref count > 10.
+
+### Back-compat notes
+- v0.1–v0.6 records using `target.kind: "sigma"`, `"splunk"`, or `"elastic"` continue to parse without modification.
+- `export-sigma-filter`, `export-splunk`, and `export-elastic-exception` all exit 1 on KQL targets (same existing behavior for non-matching target kinds).
 
 ## [0.6.0] — 2026-05-08
 
