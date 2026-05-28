@@ -1,0 +1,65 @@
+ddr_version: '0.1'
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+title: 'Suppress: DNS Tunneling - Akamai and CloudFront CDN TXT/NULL queries'
+description: >
+  Akamai's authoritative DNS infrastructure and CloudFront CNAME chains generate
+  TXT and NULL record queries with high-entropy subdomain labels that structurally
+  match the DNS tunneling rule. Observed ~15 alerts/day from workstations browsing
+  Akamai-served content and from the software update pipeline contacting
+  downloads.akamaized.net. Zero true positives confirmed across 30-day review.
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: a8f3b2c1-4d5e-6f7a-8b9c-0d1e2f3a4b5c
+    content_hash: sha256:9eade3201a45177ac2e6140d6733d0d1a88790e7747347ea86c6c3d15507bb1b
+    source: internal
+    path_or_url: rules/network/dns-tunneling-high-entropy-subdomains.yml
+decision:
+  kind: suppress
+  rationale: >
+    CDN providers use long base64-encoded subdomain labels for content routing and
+    health checks. Akamai's a1234.dscx.akamaiedge.net and CloudFront's
+    d1abc.cloudfront.net distribution chains are operationally indistinguishable
+    from DNS tunneling at the query-type level. Filtering by known CDN TLD suffix
+    eliminates this FP class without touching the detection logic for attacker
+    tooling (iodine uses .tunnel., dnscat2 uses random labels under attacker-owned
+    domains, neither of which end with known CDN suffixes).
+  tuning:
+    kind: sigma
+    logsource:
+      category: dns
+      product: zeek
+    selections:
+      known_fp_cdn:
+        query|endswith:
+          - '.akamaiedge.net'
+          - '.akamaitechnologies.com'
+          - '.cloudfront.net'
+          - '.akamaized.net'
+          - '.edgesuite.net'
+    condition: not known_fp_cdn
+lifecycle:
+  status: active
+  created_on: '2026-04-15T09:00:00Z'
+  activated_on: '2026-04-16T08:00:00Z'
+  expires_on: '2027-04-16T00:00:00Z'
+  review_cadence_days: 180
+  last_reviewed_on: '2026-04-16T08:00:00Z'
+provenance:
+  author: cray44
+  reviewers:
+    - soc-lead@corp.example.com
+  approved_by: soc-lead@corp.example.com
+  ticket_refs:
+    - SOC-1102
+  evidence:
+    - type: splunk_query
+      ref: 'savedsearch://DNS_Tunneling_FP_CDN_30d'
+      note: >
+        30-day review: 847 total alerts, 847 matched CDN suffix pattern.
+        Zero alerts from non-CDN domains during review period.
+scope:
+  environments:
+    - production
+  data_sources:
+    - zeek/dns

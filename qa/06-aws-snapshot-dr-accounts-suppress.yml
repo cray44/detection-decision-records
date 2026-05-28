@@ -1,0 +1,66 @@
+ddr_version: '0.1'
+id: f6a7b8c9-d0e1-2345-fabc-345678900005
+title: 'Suppress: AWS EC2 Snapshot Sharing - Known DR Account IDs'
+description: >
+  AWS Backup cross-account DR policy shares EBS snapshots to two known disaster
+  recovery accounts (111122223333, 444455556666) within the AWS Organization.
+  Lambda lifecycle automation also shares dev-tier snapshots to the sandbox account
+  (777788889999). These generate ~8 CloudTrail ModifySnapshotAttribute events per day
+  matching the rule, all from documented automation. The suppression is limited to
+  exact account IDs; any other account ID will still fire.
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: e3f4a5b6-7c8d-9e0f-a1b2-c3d4e5f6a7b8
+    content_hash: sha256:42c2a81a54139ba64cfb01edd687fb6d908906d47ef46a40237631e505c3cbc3
+    source: internal
+    path_or_url: rules/cloud/aws-ec2-snapshot-exfiltration.yml
+decision:
+  kind: suppress
+  rationale: >
+    AWS Backup and Lambda lifecycle automation share snapshots to known accounts within
+    the Organization's control plane. The three account IDs are documented in the AWS
+    Organization OU structure (DR-OU: 111122223333, 444455556666; Sandbox-OU: 777788889999).
+    Filtering by exact account ID is safe — any account ID not in this list still fires
+    the detection. This is preferable to a Splunk lookup approach because the account
+    IDs are stable infrastructure (not user-managed) and a hardcoded filter is auditable
+    without a separate lookup file dependency.
+  tuning:
+    kind: sigma
+    logsource:
+      product: aws
+      service: cloudtrail
+    selections:
+      known_fp_dr_accounts:
+        requestParameters.createVolumePermission.add.items.userId|contains:
+          - '111122223333'
+          - '444455556666'
+          - '777788889999'
+    condition: not known_fp_dr_accounts
+lifecycle:
+  status: active
+  created_on: '2026-04-20T14:00:00Z'
+  activated_on: '2026-04-21T09:00:00Z'
+  expires_on: '2027-04-21T00:00:00Z'
+  review_cadence_days: 180
+  last_reviewed_on: '2026-04-21T09:00:00Z'
+provenance:
+  author: cray44
+  reviewers:
+    - cloud-sec@corp.example.com
+  approved_by: cloud-sec@corp.example.com
+  ticket_refs:
+    - SOC-1301
+    - CLOUD-DR-AWS-022
+  evidence:
+    - type: splunk_query
+      ref: 'savedsearch://AWS_Snapshot_FP_Review_30d'
+      note: 8 events/day, all matching the three DR/sandbox account IDs.
+    - type: other
+      ref: 'AWS-ORG-ACCOUNT-REGISTER'
+      note: Organization account registry confirming ownership of all three IDs.
+scope:
+  environments:
+    - production
+  data_sources:
+    - aws/cloudtrail

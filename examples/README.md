@@ -1,6 +1,6 @@
 # Worked Examples
 
-11 canonical DDRs spanning all decision kinds and all five target kinds. Each example is a directory containing:
+12 canonical DDRs spanning all decision kinds and all five target kinds. Each example is a directory containing:
 
 - Source rule file — `sigma-rule.yml` (Sigma targets), `savedsearch.conf` (Splunk targets), `elastic-rule.ndjson` (Elastic), `sentinel-rule.json` (Sentinel ARM export), or `m365d-detection.json` (M365D Graph API export)
 - `ddr.yml` — the Detection Decision Record
@@ -24,6 +24,7 @@ CI validates every `ddr.yml` and re-exports suppress filters on each run. If the
 | 9 | `09-elastic-av-scanner-suppress/` | elastic | Nessus scanner triggers Defender AV rule | `suppress` |
 | 10 | `10-sentinel-brute-force-suppress/` | kql-sentinel | Authorized red team IP range in brute-force rule | `suppress` |
 | 11 | `11-m365d-lolbin-suppress/` | kql-m365d | IT admin service accounts trigger LOLBin detection | `suppress` |
+| 12 | `12-splunk-cloud-rest-export/` | splunk (Cloud) | Nessus scanner via servicesNS REST export | `suppress` |
 
 ## Quickstart
 
@@ -46,6 +47,7 @@ ddr export-sigma-filter examples/01-psexec-admin-suppression/ddr.yml
 ddr export-elastic-exception examples/09-elastic-av-scanner-suppress/ddr.yml
 ddr export-kql examples/10-sentinel-brute-force-suppress/ddr.yml
 ddr export-kql examples/11-m365d-lolbin-suppress/ddr.yml
+ddr export-splunk examples/12-splunk-cloud-rest-export/ddr.yml
 ```
 
 Check for expired records:

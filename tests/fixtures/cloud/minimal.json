@@ -1,0 +1,5 @@
+{
+  "name": "Brute Force Login Attempt",
+  "search": "index=auth action=failure | stats count by src_ip | where count > 20",
+  "app": "search"
+}

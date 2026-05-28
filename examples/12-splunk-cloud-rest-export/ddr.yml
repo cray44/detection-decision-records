@@ -1,0 +1,42 @@
+ddr_version: '0.8'
+id: a3c7f2e1-8b5d-4a90-b6e4-2f1c9d8e7a06
+title: 'Suppress: Excessive Failed Logins From Single Source — Nessus scan window'
+description: >
+  Suppress alerts triggered by Nessus vulnerability scanner during its scheduled credentialed
+  scan window (Tuesdays 02:00–04:00 UTC). The scanner performs brute-force credential
+  verification against SSH and LDAP, generating hundreds of failed login events per minute
+  from a known, static scanner IP range.
+target:
+  kind: splunk
+  query_refs:
+  - name: Excessive Failed Logins From Single Source
+    app: DA-ESS-AccessProtection
+    query_hash: sha256:9f67aa9e2f7e15b2a9a62c694e9d1af4d685cddb7a09290575643157e5ffc06e
+    path_or_url: https://github.com/cray44/detection-decision-records/blob/main/examples/12-splunk-cloud-rest-export/cloud-export.json
+decision:
+  kind: suppress
+  rationale: >
+    Nessus scanner IPs (10.0.100.20–30) generate hundreds of failed login events during its
+    scheduled credentialed scan window every Tuesday 02:00–04:00 UTC. The source IPs are
+    static and enrolled in our asset inventory. Risk accepted per VULN-2024-0091.
+  tuning:
+    kind: splunk
+    filter_title: Suppress Nessus scanner IPs — failed login FP
+    splunk_filter: "src_ip>=10.0.100.20 AND src_ip<=10.0.100.30"
+lifecycle:
+  status: active
+  created_on: '2026-03-15T14:00:00Z'
+  expires_on: '2027-03-15T00:00:00Z'
+  review_cadence_days: 90
+  last_reviewed_on: '2026-03-15T14:00:00Z'
+provenance:
+  author: chris.ray@example.com
+  ticket_refs:
+    - VULN-2024-0091
+  evidence:
+    - type: ticket
+      ref: 'https://jira.example.com/browse/VULN-2024-0091'
+      note: Nessus scan schedule and static IP range documented in ticket
+scope:
+  environments:
+    - production

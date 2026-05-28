@@ -1,0 +1,61 @@
+ddr_version: '0.1'
+id: d4e5f6a7-b8c9-0123-defa-123456789003
+title: 'Suppress: LSASS Access - CrowdStrike Falcon Sensor'
+description: >
+  CrowdStrike Falcon sensor (CSFalconService.exe) accesses LSASS with GrantedAccess
+  0x1fffff (PROCESS_ALL_ACCESS) as part of its credential theft prevention scanning.
+  This is not present in the rule's existing filter_known_good list. Generates 1 alert
+  per endpoint per boot cycle. Confirmed benign via CrowdStrike vendor documentation
+  and hash verification of CSFalconService.exe on affected endpoints.
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: b2e4f6a8-3c5d-7e9f-a1b2-4c6d8e0f2a3b
+    content_hash: sha256:a66b56843d574de682251792f1a6859515edda73906c4af36d1f7eb6f6f9cce9
+    source: internal
+    path_or_url: rules/endpoint/lsass-process-access-credential-dumping.yml
+decision:
+  kind: suppress
+  rationale: >
+    CrowdStrike Falcon's user-space sensor component reads LSASS memory to detect
+    in-memory credential theft in real time. This is the intended behavior per
+    CrowdStrike engineering documentation (KB article CS-2024-00142). The access
+    path is invariant: \Device\HarddiskVolume3\Program Files\CrowdStrike\CSFalconService.exe.
+    The existing rule filter_known_good list covers MsMpEng, MsSense, and csrss but
+    not CrowdStrike. Adding CSFalconService.exe closes the gap without widening the
+    exclusion to all of Program Files\CrowdStrike\ (which would over-suppress).
+  tuning:
+    kind: sigma
+    logsource:
+      product: windows
+      category: process_access
+    selections:
+      known_fp_crowdstrike:
+        SourceImage|endswith:
+          - '\CrowdStrike\CSFalconService.exe'
+    condition: not known_fp_crowdstrike
+lifecycle:
+  status: active
+  created_on: '2026-05-01T11:00:00Z'
+  activated_on: '2026-05-01T14:00:00Z'
+  expires_on: '2027-05-01T00:00:00Z'
+  review_cadence_days: 365
+  last_reviewed_on: '2026-05-01T14:00:00Z'
+provenance:
+  author: cray44
+  reviewers:
+    - endpoint-eng@corp.example.com
+  approved_by: endpoint-eng@corp.example.com
+  ticket_refs:
+    - SOC-1380
+  evidence:
+    - type: other
+      ref: 'CS-KB-2024-00142'
+      note: CrowdStrike KB confirming CSFalconService.exe LSASS access is intentional AV behavior.
+    - type: splunk_query
+      ref: 'savedsearch://LSASS_Access_CrowdStrike_Verify'
+      note: Hash verification of CSFalconService.exe on all alerting endpoints matches known-good.
+scope:
+  environments:
+    - production
+    - corporate

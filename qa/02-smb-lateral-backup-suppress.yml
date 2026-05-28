@@ -1,0 +1,63 @@
+ddr_version: '0.1'
+id: b2c3d4e5-f6a7-8901-bcde-f12345678901
+title: 'Suppress: SMB Admin Share Access - Veeam Backup Servers'
+description: >
+  Veeam Backup & Replication servers (10.10.5.20 and 10.10.5.21) access ADMIN$
+  and C$ on endpoints during nightly backup windows (00:00–05:00 UTC) via VSS
+  snapshot. This generates 60–120 alerts per night with 100% FP rate. The source
+  IPs are static, documented in the backup server CMDB, and do not move.
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: c9d4b2e7-3f1a-4c8e-b6d5-4e8f2a0b7c5e
+    content_hash: sha256:fe796cfb0e83d9d3b2314dc2853e588bdfcd0d86371849a06fd011ed027b23ea
+    source: internal
+    path_or_url: rules/network/smb-lateral-movement-admin-shares.yml
+decision:
+  kind: suppress
+  rationale: >
+    Veeam B&R uses VSS over SMB to quiesce and snapshot endpoints. The admin share
+    access pattern (ADMIN$ and C$) is required by VSS and cannot be changed. The
+    source IPs are static infrastructure — 10.10.5.20/21 are documented in CMDB as
+    backup servers and are on a dedicated backup VLAN. Filtering by source CIDR
+    eliminates the FP class. The detection still fires for admin share access from
+    any other source, preserving coverage for lateral movement from workstations
+    or non-backup infrastructure.
+  tuning:
+    kind: sigma
+    logsource:
+      category: network_connection
+      product: zeek
+    selections:
+      known_fp_veeam:
+        id.orig_h|cidr:
+          - '10.10.5.20/32'
+          - '10.10.5.21/32'
+    condition: not known_fp_veeam
+lifecycle:
+  status: active
+  created_on: '2026-03-01T10:00:00Z'
+  activated_on: '2026-03-02T08:00:00Z'
+  expires_on: '2027-03-02T00:00:00Z'
+  review_cadence_days: 90
+  last_reviewed_on: '2026-03-02T08:00:00Z'
+provenance:
+  author: cray44
+  reviewers:
+    - infra-lead@corp.example.com
+  approved_by: infra-lead@corp.example.com
+  ticket_refs:
+    - SOC-0891
+    - INFRA-4420
+  evidence:
+    - type: splunk_query
+      ref: 'savedsearch://SMB_Admin_Share_FP_Review'
+      note: 60-120 nightly alerts, all from 10.10.5.20-21 during backup window.
+    - type: runbook
+      ref: 'https://wiki.corp.example.com/BACKUP-VEEAM-ARCH'
+      note: Veeam architecture doc confirming VSS-over-SMB backup method.
+scope:
+  environments:
+    - production
+  data_sources:
+    - zeek/smb_mapping

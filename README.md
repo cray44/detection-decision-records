@@ -28,7 +28,7 @@ ddr validate my_suppression.yml
 ddr export-sigma-filter my_suppression.yml
 ```
 
-### Splunk-native target (detection lives only in the SIEM)
+### Splunk Enterprise target (detection lives only in the SIEM)
 
 ```bash
 # Fully automated — parses conf, computes query_hash, infers app
@@ -40,6 +40,38 @@ ddr new --target splunk /opt/splunk/etc/apps/MyTA/local/savedsearches.conf \
 ddr validate my_suppression.yml
 ddr export-splunk my_suppression.yml
 ```
+
+### Splunk Cloud target (no filesystem access)
+
+```bash
+# Export the saved search from the Cloud REST API
+curl -s -H "Authorization: Bearer $SPLUNK_TOKEN" \
+  "https://tenant.splunkcloud.com:8089/servicesNS/nobody/DA-ESS-AccessProtection/saved/searches/MySearch?output_mode=json" \
+  > cloud-export.json
+
+# DDR auto-detects the servicesNS shape, extracts name + app, computes query_hash
+ddr new --target splunk cloud-export.json \
+  --source-url "https://github.com/yourorg/detections/blob/main/cloud-export.json" \
+  --output my_suppression.yml
+
+# fill rationale, lifecycle dates
+ddr validate my_suppression.yml
+ddr export-splunk my_suppression.yml
+```
+
+If the search definition changes later:
+
+```bash
+# Re-export from API, then:
+ddr refresh-hash my_suppression.yml --conf updated-cloud-export.json
+ddr validate --strict my_suppression.yml   # warns on query_hash drift
+```
+
+**Hash identity guarantee:** The same SPL string produces the same `query_hash` whether
+sourced from a `.conf` stanza or a Cloud REST export. A detection migrated from Enterprise
+to Cloud retains its existing DDR without modification.
+
+Use `--format conf|cloud-json` to override auto-detection explicitly.
 
 If the savedsearch SPL changes later:
 
@@ -151,7 +183,8 @@ v0.1–v0.4 records with the old singular `rule_ref` field continue to load unch
 
 | Version | Key addition |
 |---|---|
-| **v0.7** | KQL targets (`kql-sentinel`, `kql-m365d`), `export-kql`, Sentinel + M365D canonicalization v1 |
+| **v0.8** | Splunk Cloud servicesNS JSON support, content-driven dispatch, `--format` flag, hash identity guarantee |
+| v0.7 | KQL targets (`kql-sentinel`, `kql-m365d`), `export-kql`, Sentinel + M365D canonicalization v1 |
 | v0.6 | Elastic Security target (`target.kind: elastic`), `export-elastic-exception`, Elastic canonicalization v1 |
 | v0.5 | Multi-rule targeting (`rule_refs`/`query_refs`), `ddr list` command, back-compat shim for v0.1–v0.4 |
 | v0.4 | `savedsearches.conf` parser, SPL canonicalization, `query_hash` automation, `refresh-hash` Splunk branch |

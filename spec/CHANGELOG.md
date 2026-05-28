@@ -1,5 +1,26 @@
 # DDR Spec Changelog
 
+## [0.8.0] — 2026-05-28
+
+Additive change. All v0.1–v0.7 records validate unchanged.
+
+### Added
+- `ddr_version` pattern updated to `^0\.[12345678]$`.
+- **Splunk Cloud support**: `ddr new --target splunk` now accepts servicesNS REST JSON exports
+  in addition to classic `savedsearches.conf` files. Three JSON shapes supported: full
+  servicesNS envelope (`entry[]`), content wrapper (`content.search`), and minimal hand-crafted
+  (`{name, search}`).
+- **`--format conf|cloud-json`**: explicit override for content-driven dispatch on `--target splunk`.
+- **Hash identity guarantee**: the same SPL string produces the same `query_hash` from `.conf`
+  or Cloud JSON — both pass through `canonicalize_spl` (spec/ddr-v0.4.md §6).
+- **App precedence rule**: `--app` flag > ACL-extracted app > default `"search"`.
+- `ddr refresh-hash` and `ddr validate --strict` both cover Cloud JSON exports via the same
+  dispatch heuristic used by `ddr new`.
+
+### Fixed
+- `_cmd_new_kql` now correctly accepts `--source-url` and uses `_compute_path_or_url`
+  (silent bug: v0.7.1 CLI call passed `source_url` but function signature didn't accept it).
+
 ## [0.7.1] — 2026-05-28
 
 ### Added

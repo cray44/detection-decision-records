@@ -678,7 +678,7 @@ def test_compute_path_or_url_override():
 def test_compute_path_or_url_absolute_fallback(tmp_path):
     from src.ddr.cli import _compute_path_or_url
     # Construct an absolute path that is outside any reasonable CWD
-    outside = Path("C:/Windows/Temp/not/real/for/ddr/test.yml") if os.name == "nt" else Path("/tmp/not/real/for/ddr/test.yml")
+    outside = Path("C:/Windows/Temp/not/real/for/ddr/test.yml") if os.name == "nt" else Path("/tmp/not/real/for/ddr/test.yml")  # noqa: E501
     result = _compute_path_or_url(outside, None, None)
     assert Path(result).is_absolute()
 
@@ -1296,3 +1296,268 @@ provenance:
     result = runner.invoke(app, ["refresh-hash", str(ddr_file)])
     assert result.exit_code == 0
     assert "no path_or_url" in result.output or "skipping" in result.output
+
+
+# ---------------------------------------------------------------------------
+# v0.8: ddr new --target splunk <cloud-export.json>
+# ---------------------------------------------------------------------------
+
+_CLOUD_FIXTURES = Path(__file__).parent / "fixtures" / "cloud"
+
+
+def test_new_splunk_from_cloud_full_envelope(tmp_path):
+    fixture = _CLOUD_FIXTURES / "full_envelope.json"
+    result = runner.invoke(app, ["new", "--target", "splunk", str(fixture)])
+    assert result.exit_code == 0, result.output
+    assert "splunk" in result.output
+    assert "Excessive Failed Logins From Single Source" in result.output
+    assert "DA-ESS-AccessProtection" in result.output
+    assert "query_hash" in result.output
+    assert "sha256:" in result.output
+
+
+def test_new_splunk_from_cloud_content_wrapper(tmp_path):
+    fixture = _CLOUD_FIXTURES / "content_wrapper.json"
+    result = runner.invoke(app, ["new", "--target", "splunk", str(fixture)])
+    assert result.exit_code == 0, result.output
+    assert "query_hash" in result.output
+    assert "SA-ThreatIntelligence" in result.output
+
+
+def test_new_splunk_from_cloud_minimal_json(tmp_path):
+    import json
+
+    f = tmp_path / "minimal.json"
+    f.write_text(
+        json.dumps({"name": "My Search", "search": "index=main | head 10", "app": "search"}),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["new", "--target", "splunk", str(f)])
+    assert result.exit_code == 0, result.output
+    assert "query_hash" in result.output
+    assert "My Search" in result.output
+
+
+def test_new_splunk_format_cloud_json_explicit(tmp_path):
+    """--format cloud-json forces Cloud path even for non-.json-named files."""
+    import json
+
+    f = tmp_path / "export.txt"
+    f.write_text(
+        json.dumps({"name": "X", "search": "index=main | head 5"}),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["new", "--target", "splunk", str(f), "--format", "cloud-json"])
+    assert result.exit_code == 0, result.output
+    assert "query_hash" in result.output
+
+
+def test_new_splunk_format_conf_explicit_overrides_json(tmp_path):
+    """--format conf routes a .json file to the conf parser (will fail with a clear error)."""
+    import json
+
+    f = tmp_path / "cloud.json"
+    f.write_text(json.dumps({"name": "X", "search": "index=main"}), encoding="utf-8")
+    result = runner.invoke(app, ["new", "--target", "splunk", str(f), "--format", "conf"])
+    # conf parser cannot parse JSON — should exit non-zero with an error
+    assert result.exit_code != 0
+
+
+def test_new_splunk_format_invalid_fails():
+    result = runner.invoke(app, ["new", "--target", "splunk", "--format", "xml"])
+    assert result.exit_code == 1
+    assert "ERROR" in result.output
+
+
+def test_new_splunk_cloud_app_override_emits_note(tmp_path):
+    fixture = _CLOUD_FIXTURES / "full_envelope.json"
+    result = runner.invoke(
+        app, ["new", "--target", "splunk", str(fixture), "--app", "custom-app"]
+    )
+    assert result.exit_code == 0, result.output
+    # NOTE should be on stderr; CliRunner mixes stdout+stderr by default
+    assert "custom-app" in result.output
+
+
+def test_new_splunk_cloud_with_source_url(tmp_path):
+    fixture = _CLOUD_FIXTURES / "full_envelope.json"
+    result = runner.invoke(
+        app,
+        ["new", "--target", "splunk", str(fixture), "--source-url", "https://github.com/x/y/blob/main/export.json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "https://github.com/x/y/blob/main/export.json" in result.output
+
+
+def test_new_splunk_cloud_hash_identity_matches_conf(tmp_path):
+    """Cloud JSON and .conf for the same SPL must produce the same query_hash in the scaffold."""
+    import json as _json
+    import re
+
+    spl = (
+        "index=auth sourcetype=linux_secure action=failure"
+        " | stats count by src_ip, user | where count > 50"
+    )
+
+    # Cloud path
+    cloud_json = tmp_path / "cloud.json"
+    cloud_json.write_text(
+        _json.dumps({"name": "My Search", "search": spl, "app": "search"}),
+        encoding="utf-8",
+    )
+    cloud_result = runner.invoke(app, ["new", "--target", "splunk", str(cloud_json)])
+    assert cloud_result.exit_code == 0, cloud_result.output
+    cloud_hash = re.search(r"sha256:[0-9a-f]{64}", cloud_result.output)
+    assert cloud_hash, "No sha256 hash in cloud scaffold output"
+
+    # Conf path
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text(f"[My Search]\nsearch = {spl}\n", encoding="utf-8")
+    conf_result = runner.invoke(
+        app, ["new", "--target", "splunk", str(conf), "--name", "My Search"]
+    )
+    assert conf_result.exit_code == 0, conf_result.output
+    conf_hash = re.search(r"sha256:[0-9a-f]{64}", conf_result.output)
+    assert conf_hash, "No sha256 hash in conf scaffold output"
+
+    assert cloud_hash.group(0) == conf_hash.group(0)
+
+
+# v0.8: ddr refresh-hash on Cloud DDR
+
+
+def _make_cloud_ddr(
+    tmp_path: Path, export_path: Path, old_hash: str = "sha256:" + "0" * 64
+) -> Path:
+    ddr = tmp_path / "ddr.yml"
+    ddr.write_text(
+        f"""ddr_version: "0.8"
+id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+title: "Test Cloud"
+description: "Test."
+target:
+  kind: splunk
+  query_refs:
+    - name: "Excessive Failed Logins From Single Source"
+      app: DA-ESS-AccessProtection
+      query_hash: "{old_hash}"
+      path_or_url: "{str(export_path).replace(chr(92), "/")}"
+decision:
+  kind: suppress
+  rationale: "Vulnerability scanner."
+  tuning:
+    kind: splunk
+    filter_title: "Suppress scanner"
+    splunk_filter: "src_ip=10.0.100.0/24"
+lifecycle:
+  status: draft
+  created_on: "2026-01-01T00:00:00Z"
+provenance:
+  author: test@example.com
+""",
+        encoding="utf-8",
+    )
+    return ddr
+
+
+def test_refresh_hash_cloud_updates(tmp_path):
+    import shutil
+
+    fixture = _CLOUD_FIXTURES / "full_envelope.json"
+    export = tmp_path / "cloud-export.json"
+    shutil.copy(fixture, export)
+
+    ddr = _make_cloud_ddr(tmp_path, export)
+    result = runner.invoke(app, ["refresh-hash", str(ddr)])
+    assert result.exit_code == 0, result.output
+    assert "new:" in result.output
+    assert "sha256:" in result.output
+
+
+def test_refresh_hash_cloud_unchanged(tmp_path):
+    import shutil
+
+    from ddr._internal.splunk_cloud import parse_servicesns_export
+    from ddr._internal.splunk_conf import compute_query_hash
+
+    fixture = _CLOUD_FIXTURES / "full_envelope.json"
+    export = tmp_path / "cloud-export.json"
+    shutil.copy(fixture, export)
+
+    current_hash = compute_query_hash(parse_servicesns_export(export).search)
+    ddr = _make_cloud_ddr(tmp_path, export, old_hash=current_hash)
+    result = runner.invoke(app, ["refresh-hash", str(ddr)])
+    assert result.exit_code == 0, result.output
+    assert "unchanged" in result.output
+
+
+# v0.8: validate --strict drift on Cloud DDR
+
+
+def test_validate_strict_cloud_drift_warns(tmp_path):
+    import shutil
+
+    fixture = _CLOUD_FIXTURES / "full_envelope.json"
+    export = tmp_path / "cloud-export.json"
+    shutil.copy(fixture, export)
+
+    stale_hash = "sha256:" + "a" * 64
+    ddr = _make_cloud_ddr(tmp_path, export, old_hash=stale_hash)
+    result = runner.invoke(app, ["validate", "--strict", str(ddr)])
+    assert "WARN" in result.output or "drift" in result.output
+
+
+def test_validate_strict_cloud_no_drift_no_warn(tmp_path):
+    import shutil
+
+    from ddr._internal.splunk_cloud import parse_servicesns_export
+    from ddr._internal.splunk_conf import compute_query_hash
+
+    fixture = _CLOUD_FIXTURES / "full_envelope.json"
+    export = tmp_path / "cloud-export.json"
+    shutil.copy(fixture, export)
+
+    current_hash = compute_query_hash(parse_servicesns_export(export).search)
+    ddr = _make_cloud_ddr(tmp_path, export, old_hash=current_hash)
+    result = runner.invoke(app, ["validate", "--strict", str(ddr)])
+    assert result.exit_code == 0
+    assert "drift" not in result.output
+
+
+# v0.8: ddr_version "0.8" accepted
+
+
+def test_ddr_version_08_accepted_in_validate(tmp_path):
+    import shutil
+
+    from ddr._internal.splunk_cloud import parse_servicesns_export
+    from ddr._internal.splunk_conf import compute_query_hash
+
+    fixture = _CLOUD_FIXTURES / "full_envelope.json"
+    export = tmp_path / "cloud-export.json"
+    shutil.copy(fixture, export)
+
+    current_hash = compute_query_hash(parse_servicesns_export(export).search)
+    ddr = _make_cloud_ddr(tmp_path, export, old_hash=current_hash)
+    result = runner.invoke(app, ["validate", str(ddr)])
+    assert result.exit_code == 0
+    assert "OK" in result.output
+
+
+# v0.8: KQL targets now use _compute_path_or_url with source_url support
+
+
+def test_new_kql_sentinel_with_source_url(tmp_path):
+    import json
+
+    sentinel_json = tmp_path / "sentinel_rule.json"
+    sentinel_json.write_text(
+        json.dumps({"name": "my-rule", "properties": {"displayName": "My Sentinel Rule"}}),
+        encoding="utf-8",
+    )
+    result = runner.invoke(
+        app,
+        ["new", "--target", "kql-sentinel", str(sentinel_json), "--source-url", "https://example.com/rule.json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "https://example.com/rule.json" in result.output

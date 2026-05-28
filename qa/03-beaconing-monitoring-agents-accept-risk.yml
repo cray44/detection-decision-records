@@ -1,0 +1,50 @@
+ddr_version: '0.1'
+id: c3d4e5f6-a7b8-9012-cdef-012345678902
+title: 'Accept Risk: Statistical Beaconing - Monitoring Agent Check-ins Indistinguishable at Sigma Layer'
+description: >
+  CrowdStrike Falcon sensor, Splunk Universal Forwarder, and Qualys Cloud Agent all
+  beacon to cloud infrastructure at regular intervals (30s–5min) that score as
+  low-jitter beaconing under the statistical thresholds applied in the SPL conversion.
+  These cannot be suppressed in the Sigma rule itself — the rule is a structural
+  pre-filter only, and the filtering requires either a Splunk lookup (trusted_agents.csv)
+  or SPL-layer destination IP allowlisting. Accept risk at Sigma layer; suppression
+  is handled in the SPL post-processor.
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: a4f8c2d1-9b3e-4a7f-8c5d-2e6b1f0a9c3d
+    content_hash: sha256:f93457d3bedcda5686d80d3bafd96f01b71d44c838b9fc4279e7ba50fa13a3e6
+    source: internal
+    path_or_url: rules/network/statistical-beaconing-zeek-conn-log.yml
+decision:
+  kind: accept-risk
+  rationale: >
+    The statistical beaconing rule operates in two layers: (1) a Sigma pre-filter
+    capturing all qualifying external connections, and (2) SPL streamstats CoV
+    analysis that computes jitter scores. Monitoring agents (CrowdStrike, Splunk UF,
+    Qualys) produce beaconing patterns that pass the jitter threshold. These cannot
+    be filtered at the Sigma layer because the suppression requires matching on
+    destination IP ranges maintained in a Splunk lookup table, which Sigma cannot
+    express. Risk is accepted at the Sigma layer; SPL-layer allowlisting via
+    trusted_beacon_destinations.csv is the operational control. This DDR documents
+    the gap and sets a review deadline aligned with the next rule revision cycle.
+lifecycle:
+  status: active
+  created_on: '2026-04-01T09:00:00Z'
+  activated_on: '2026-04-02T08:00:00Z'
+  expires_on: '2026-10-02T00:00:00Z'
+  review_cadence_days: 90
+  last_reviewed_on: '2026-04-02T08:00:00Z'
+provenance:
+  author: cray44
+  ticket_refs:
+    - SOC-1250
+  evidence:
+    - type: other
+      ref: 'internal'
+      note: >
+        CoV scores for CrowdStrike (0.02), Splunk UF (0.03), Qualys (0.05) all
+        below the 0.1 jitter threshold. Suppression applied in SPL via lookup.
+scope:
+  environments:
+    - production

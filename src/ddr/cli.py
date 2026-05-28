@@ -43,7 +43,7 @@ _LOG_LINE_RE = re.compile(
 
 # Single source of truth for the DDR spec version emitted by all `ddr new` scaffolds.
 # Bump this on every minor release. Never hardcode version strings inside the scaffold dicts.
-LATEST_DDR_VERSION: str = "0.7"
+LATEST_DDR_VERSION: str = "0.8"
 
 
 def _safe_yaml() -> YAML:
@@ -120,9 +120,12 @@ def _compute_path_or_url(
 
 @app.command("new")
 def cmd_new(
-    sigma_rule: Path | None = typer.Argument(
+    source_path: Path | None = typer.Argument(
         default=None,
-        help="Path to Sigma rule YAML (--target sigma) or savedsearches.conf (--target splunk).",
+        help=(
+            "Source file: Sigma rule YAML, savedsearches.conf, Elastic NDJSON, "
+            "Cloud JSON export, or KQL JSON."
+        ),
     ),
     output: Path | None = typer.Option(
         None, "--output", "-o", help="Write new DDR here (default: stdout)."
@@ -137,22 +140,27 @@ def cmd_new(
         help="Target kind: sigma | splunk | elastic | kql-sentinel | kql-m365d.",
     ),
     splunk_name: str | None = typer.Option(
-        None, "--name", help="Splunk savedsearch stanza name (--target splunk)."
+        None, "--name", help="Splunk savedsearch stanza name (--target splunk, no source file)."
     ),
     splunk_app: str = typer.Option(
         "search",
         "--app",
-        help="Splunk app context (default: search; overridden by path inference).",
+        help="Splunk app context (default: search; overridden by path/ACL inference).",
     ),
     source_url: str | None = typer.Option(
         None,
         "--source-url",
-        help="Override path_or_url (metadata only; hash still from positional source).",
+        help="Override path_or_url (metadata only; hash still computed from positional source).",
+    ),
+    input_format: str | None = typer.Option(
+        None,
+        "--format",
+        help="Splunk input format override: conf | cloud-json (default: auto-detect from content).",
     ),
 ) -> None:
-    """Scaffold a DDR from a Sigma rule, savedsearches.conf, Elastic rule NDJSON, or KQL JSON."""
+    """Scaffold a DDR from a Sigma rule, savedsearches.conf, Elastic NDJSON, Cloud JSON, or KQL JSON."""  # noqa: E501
     # Infer --target elastic when a .ndjson file is provided
-    if sigma_rule is not None and sigma_rule.suffix.lower() == ".ndjson":
+    if source_path is not None and source_path.suffix.lower() == ".ndjson":
         target_kind = "elastic"
 
     _VALID_TARGETS = ("sigma", "splunk", "elastic", "kql-sentinel", "kql-m365d")
@@ -167,9 +175,13 @@ def cmd_new(
         typer.echo("ERROR: --decision must be suppress | accept-risk | deprecate", err=True)
         raise typer.Exit(1)
 
+    if input_format is not None and input_format not in ("conf", "cloud-json"):
+        typer.echo("ERROR: --format must be conf | cloud-json", err=True)
+        raise typer.Exit(1)
+
     if target_kind == "elastic":
         _cmd_new_elastic(
-            ndjson_path=sigma_rule,
+            ndjson_path=source_path,
             output=output,
             decision_kind=decision_kind,
             source_url=source_url,
@@ -178,7 +190,7 @@ def cmd_new(
 
     if target_kind in ("kql-sentinel", "kql-m365d"):
         _cmd_new_kql(
-            json_path=sigma_rule,
+            json_path=source_path,
             output=output,
             decision_kind=decision_kind,
             target_kind=target_kind,
@@ -187,14 +199,15 @@ def cmd_new(
         return
 
     if target_kind == "splunk":
-        if sigma_rule is not None:
-            _cmd_new_splunk_from_conf(
-                conf_path=sigma_rule,
+        if source_path is not None:
+            _cmd_new_splunk_from_source(
+                source=source_path,
                 output=output,
                 decision_kind=decision_kind,
                 splunk_name=splunk_name,
                 splunk_app=splunk_app,
                 source_url=source_url,
+                input_format=input_format,
             )
         else:
             _cmd_new_splunk(
@@ -206,6 +219,7 @@ def cmd_new(
         return
 
     # --- sigma target ---
+    sigma_rule = source_path
     if sigma_rule is None:
         typer.echo("ERROR: a Sigma rule path is required for --target sigma", err=True)
         raise typer.Exit(1)
@@ -348,11 +362,11 @@ def _cmd_new_kql(
     output: Path | None,
     decision_kind: str,
     target_kind: str,
+    source_url: str | None = None,
 ) -> None:
     """Scaffold a DDR for a Sentinel or M365D KQL-based detection."""
     rule_id = "TODO-FILL-IN-RULE-ID"
     rule_name = "TODO: rule name"
-    path_or_url_val: str | None = None
 
     if json_path is not None:
         if not json_path.exists():
@@ -375,7 +389,12 @@ def _cmd_new_kql(
         except Exception:
             pass  # fall back to placeholders
 
-        path_or_url_val = str(json_path)
+    path_or_url_val = _compute_path_or_url(json_path, output, source_url)
+    if path_or_url_val and not source_url and json_path and Path(path_or_url_val).is_absolute():
+        typer.echo(
+            "NOTE: path_or_url is absolute. Consider --source-url for portability.",
+            err=True,
+        )
 
     optional_field = "workspace" if target_kind == "kql-sentinel" else "table"
     scaffold = _strip_none(
@@ -456,6 +475,129 @@ def _build_elastic_decision_scaffold(kind: str) -> dict:
         "kind": "deprecate",
         "rationale": "TODO: explain why this rule is being deprecated",
     }
+
+
+def _cmd_new_splunk_from_source(
+    source: Path,
+    output: Path | None,
+    decision_kind: str,
+    splunk_name: str | None,
+    splunk_app: str,
+    source_url: str | None,
+    input_format: str | None,
+) -> None:
+    """Dispatch to conf or Cloud JSON path based on --format or content sniff."""
+    from ddr._internal.splunk_cloud import is_servicesns_json
+
+    use_cloud: bool
+    if input_format == "cloud-json":
+        use_cloud = True
+    elif input_format == "conf":
+        use_cloud = False
+    else:
+        # Content-driven detection
+        if source.suffix.lower() == ".conf":
+            use_cloud = False
+        elif is_servicesns_json(source):
+            use_cloud = True
+        else:
+            use_cloud = False  # fall through to conf parser; let it fail clearly
+
+    if use_cloud:
+        _cmd_new_splunk_from_cloud_export(
+            export_path=source,
+            output=output,
+            decision_kind=decision_kind,
+            splunk_app_override=splunk_app if splunk_app != "search" else None,
+            source_url=source_url,
+        )
+    else:
+        _cmd_new_splunk_from_conf(
+            conf_path=source,
+            output=output,
+            decision_kind=decision_kind,
+            splunk_name=splunk_name,
+            splunk_app=splunk_app,
+            source_url=source_url,
+        )
+
+
+def _cmd_new_splunk_from_cloud_export(
+    export_path: Path,
+    output: Path | None,
+    decision_kind: str,
+    splunk_app_override: str | None,
+    source_url: str | None,
+) -> None:
+    """Scaffold from a servicesNS JSON export — computes query_hash, infers app from ACL."""
+    from ddr._internal.splunk_cloud import parse_servicesns_export
+
+    if not export_path.exists():
+        typer.echo(f"ERROR: {export_path} not found", err=True)
+        raise typer.Exit(1)
+
+    try:
+        info = parse_servicesns_export(export_path)
+    except ValueError as exc:
+        typer.echo(f"ERROR: failed to parse {export_path}: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    from ddr._internal.splunk_conf import compute_query_hash
+
+    try:
+        query_hash = compute_query_hash(info.search)
+    except ValueError as exc:
+        typer.echo(f"ERROR: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    # App precedence: --app flag wins; else extracted from ACL; else default "search"
+    if splunk_app_override:
+        app = splunk_app_override
+        if info.app and info.app != splunk_app_override:
+            typer.echo(
+                f"NOTE: --app {splunk_app_override!r} overrides ACL app {info.app!r}",
+                err=True,
+            )
+    else:
+        app = info.app or "search"
+
+    path_or_url_val = _compute_path_or_url(export_path, output, source_url)
+    if path_or_url_val and not source_url and Path(path_or_url_val).is_absolute():
+        typer.echo(
+            "NOTE: path_or_url is absolute. Consider --source-url for portability.",
+            err=True,
+        )
+
+    scaffold = _strip_none(
+        {
+            "ddr_version": LATEST_DDR_VERSION,
+            "id": str(uuid4()),
+            "title": f"TODO: title for {info.name}",
+            "description": "TODO: describe this detection and why tuning is needed.",
+            "target": {
+                "kind": "splunk",
+                "query_refs": [
+                    {
+                        "name": info.name,
+                        "app": app,
+                        "query_hash": query_hash,
+                        "path_or_url": path_or_url_val,
+                    }
+                ],
+            },
+            "decision": _build_splunk_decision_scaffold(decision_kind),
+            "lifecycle": {
+                "status": "draft",
+                "created_on": _now_utc(),
+            },
+            "provenance": {
+                "author": "",
+                "ticket_refs": [],
+            },
+        }
+    )
+
+    _write_scaffold(scaffold, output)
 
 
 def _cmd_new_splunk(
@@ -885,9 +1027,16 @@ def _strict_lint(fp: Path, record: DDRRecord) -> None:
 
 
 def _strict_splunk_drift_check(fp: Path, record: DDRRecord) -> None:
-    """Warn if query_hash in a Splunk-target DDR doesn't match the local conf."""
+    """Warn if query_hash in a Splunk-target DDR doesn't match the local conf or Cloud export."""
     if not isinstance(record.target, SplunkTarget):
         return
+
+    from ddr._internal.splunk_cloud import is_servicesns_json, parse_servicesns_export
+    from ddr._internal.splunk_conf import (
+        compute_query_hash,
+        extract_stanza,
+        parse_savedsearches_conf,
+    )
 
     for idx, qref in enumerate(record.target.query_refs):
         ref_label = f"query_refs[{idx}]"
@@ -901,25 +1050,23 @@ def _strict_splunk_drift_check(fp: Path, record: DDRRecord) -> None:
             )
             continue
 
-        conf_path = Path(qref.path_or_url)
-        if not conf_path.is_absolute():
-            conf_path = fp.parent / conf_path
-        if not conf_path.exists():
+        source_path = Path(qref.path_or_url)
+        if not source_path.is_absolute():
+            source_path = fp.parent / source_path
+        if not source_path.exists():
             continue
 
         try:
-            from ddr._internal.splunk_conf import (
-                compute_query_hash,
-                extract_stanza,
-                parse_savedsearches_conf,
-            )
-
-            conf = parse_savedsearches_conf(conf_path)
-            stanza = extract_stanza(conf, qref.name)
-            search = stanza.get("search", "").strip()
-            if not search:
-                continue
-            current_hash = compute_query_hash(search)
+            if is_servicesns_json(source_path):
+                info = parse_servicesns_export(source_path)
+                current_hash = compute_query_hash(info.search)
+            else:
+                conf = parse_savedsearches_conf(source_path)
+                stanza = extract_stanza(conf, qref.name)
+                search = stanza.get("search", "").strip()
+                if not search:
+                    continue
+                current_hash = compute_query_hash(search)
             if current_hash != qref.query_hash:
                 typer.echo(
                     f"  WARN  {fp} {ref_label}: query_hash drift"
@@ -1336,6 +1483,7 @@ def _cmd_refresh_hash_splunk(
     writer: Any,
     conf_override: Path | None,
 ) -> None:
+    from ddr._internal.splunk_cloud import is_servicesns_json, parse_servicesns_export
     from ddr._internal.splunk_conf import (
         compute_query_hash,
         extract_stanza,
@@ -1368,50 +1516,57 @@ def _cmd_refresh_hash_splunk(
             raise typer.Exit(1)
 
         if conf_override:
-            conf_path = conf_override
+            source_path = conf_override
         elif stored_path:
             if stored_path.startswith(("http://", "https://")):
                 typer.echo(
-                    f"NOTE: {ref_label}: path_or_url is a remote URL — use --conf to provide a local savedsearches.conf",  # noqa: E501
+                    f"NOTE: {ref_label}: path_or_url is a remote URL — "
+                    "provide a local file with --conf to verify drift",
                     err=True,
                 )
                 raise typer.Exit(1)
-            conf_path = Path(stored_path)
-            if not conf_path.is_absolute():
-                conf_path = ddr_path.parent / conf_path
+            source_path = Path(stored_path)
+            if not source_path.is_absolute():
+                source_path = ddr_path.parent / source_path
         else:
             typer.echo(
-                f"ERROR: {ref_label}: no conf path available. Set path_or_url or use --conf.",
+                f"ERROR: {ref_label}: no conf/export path. Set path_or_url or use --conf.",
                 err=True,
             )
             raise typer.Exit(1)
 
-        if not conf_path.exists():
+        if not source_path.exists():
             typer.echo(
-                f"ERROR: {ref_label}: conf file not found at '{conf_path}'. Use --conf to specify the path.",  # noqa: E501
+                f"ERROR: {ref_label}: file not found at '{source_path}'. Use --conf.",
                 err=True,
             )
             raise typer.Exit(1)
 
+        # Dispatch: Cloud JSON export or classic .conf
         try:
-            conf = parse_savedsearches_conf(conf_path)
-            stanza = extract_stanza(conf, stanza_name)
+            if is_servicesns_json(source_path):
+                info = parse_servicesns_export(source_path)
+                new_hash = compute_query_hash(info.search)
+            else:
+                conf = parse_savedsearches_conf(source_path)
+                stanza = extract_stanza(conf, stanza_name)
+                search = stanza.get("search", "").strip()
+                if not search:
+                    typer.echo(
+                        f"ERROR: {ref_label}: stanza {stanza_name!r} has no search or empty value",
+                        err=True,
+                    )
+                    raise typer.Exit(1)
+                new_hash = compute_query_hash(search)
+        except typer.Exit:
+            raise
         except KeyError as exc:
             typer.echo(f"ERROR: {ref_label}: {exc}", err=True)
             raise typer.Exit(1) from exc
         except Exception as exc:
-            typer.echo(f"ERROR: {ref_label}: failed to parse {conf_path}: {exc}", err=True)
+            typer.echo(f"ERROR: {ref_label}: failed to parse {source_path}: {exc}", err=True)
             raise typer.Exit(1) from exc
 
-        search = stanza.get("search", "").strip()
-        if not search:
-            typer.echo(
-                f"ERROR: {ref_label}: stanza {stanza_name!r} has no 'search' key or empty value",
-                err=True,
-            )
-            raise typer.Exit(1)
-
-        new_hash = compute_query_hash(search)
         old_hash = qref.get("query_hash", "")
 
         if old_hash == new_hash:

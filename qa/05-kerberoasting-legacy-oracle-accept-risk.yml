@@ -1,0 +1,53 @@
+ddr_version: '0.1'
+id: e5f6a7b8-c9d0-1234-efab-234567890004
+title: 'Accept Risk: Kerberoasting RC4 - Oracle RAC Service Account Cannot Negotiate AES'
+description: >
+  The Oracle RAC cluster service account (svc-oraclerac) has msDS-SupportedEncryptionTypes
+  set to RC4-only due to an Oracle RAC 11g limitation. This generates 4 Event 4769
+  RC4 TGS requests per day from the Oracle cluster nodes. Cannot be filtered in Sigma
+  without excluding the specific service account name, which risks masking a real
+  Kerberoasting attack against the same account. Accept risk with a hard deadline
+  aligned to the Oracle 19c migration project.
+target:
+  kind: sigma
+  rule_ref:
+    rule_id: d2e5c8f1-4a7b-4d9c-b3e6-5f9a3b1c8d2e
+    content_hash: sha256:c9a86f225b9b275135ef27b248bf48d42a3b736d45683d13434d419ea396584d
+    source: internal
+    path_or_url: rules/windows/kerberoasting-rc4-downgrade.yml
+decision:
+  kind: accept-risk
+  rationale: >
+    Oracle RAC 11g does not support AES Kerberos encryption for cluster service
+    accounts. svc-oraclerac is a high-privilege account (database admin SPN) and
+    deliberately NOT filtered by ServiceName to avoid creating a named exclusion that
+    an attacker could exploit by targeting that specific SPN. The 4 daily alerts are
+    monitored manually. Risk expires with the Oracle 19c migration, which includes
+    AES Kerberos support, scheduled for completion by 2026-09-30. If migration slips,
+    this DDR must be renewed with updated justification.
+lifecycle:
+  status: active
+  created_on: '2026-02-01T09:00:00Z'
+  activated_on: '2026-02-03T08:00:00Z'
+  expires_on: '2026-10-15T00:00:00Z'
+  review_cadence_days: 60
+  last_reviewed_on: '2026-04-01T08:00:00Z'
+provenance:
+  author: cray44
+  reviewers:
+    - db-admin@corp.example.com
+    - security-arch@corp.example.com
+  approved_by: security-arch@corp.example.com
+  ticket_refs:
+    - SOC-0774
+    - INFRA-ORACLE-19C
+  evidence:
+    - type: other
+      ref: 'Oracle-MOS-1561401.1'
+      note: Oracle Support doc confirming RC4-only Kerberos for RAC 11g.
+    - type: other
+      ref: 'INFRA-ORACLE-19C'
+      note: Migration project ticket with AES enablement as a deliverable.
+scope:
+  environments:
+    - production

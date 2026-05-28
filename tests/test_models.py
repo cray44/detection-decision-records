@@ -998,9 +998,14 @@ def test_ddr_version_07_accepted():
     assert record.ddr_version == "0.7"
 
 
-def test_ddr_version_08_rejected():
+def test_ddr_version_08_accepted():
+    record = DDRRecord.model_validate(_kql_sentinel_suppress_record(ddr_version="0.8"))
+    assert record.ddr_version == "0.8"
+
+
+def test_ddr_version_09_rejected():
     with pytest.raises(ValidationError):
-        DDRRecord.model_validate(_kql_sentinel_suppress_record(ddr_version="0.8"))
+        DDRRecord.model_validate(_kql_sentinel_suppress_record(ddr_version="0.9"))
 
 
 def test_kql_sentinel_fixture(valid_fixtures_dir):
