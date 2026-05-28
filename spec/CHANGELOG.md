@@ -1,5 +1,21 @@
 # DDR Spec Changelog
 
+## [0.7.1] — 2026-05-28
+
+### Added
+- `LATEST_DDR_VERSION` constant in `cli.py` (single source of truth for scaffolded `ddr_version`).
+- `--source-url` flag on `ddr new` + automatic relative `path_or_url` logic across all target kinds (UX-01).
+- Per-target regression tests for the new path handling.
+
+### Changed
+- All `ddr new` scaffolds now emit the current latest version via the constant (no more scattered hardcoded strings).
+- `qa/QA-FINDINGS.md` updated with "Closed in v0.7.1" section.
+
+### Fixed
+- SCHEMA-01: `evidence.type` now accepts `"note"`.
+- SCHEMA-02: `deprecate` + `status: active` no longer requires `expires_on`.
+- UX-03: reproduction confirmed current `--strict` regex no longer false-positives on bare infrastructure IPs in prose.
+
 ## [0.7.0] — 2026-05-13
 
 Additive schema change. All v0.1–v0.6 records validate unchanged.

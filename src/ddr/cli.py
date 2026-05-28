@@ -41,6 +41,10 @@ _LOG_LINE_RE = re.compile(
     r"|(\w+=\w+\|\w+=\w+)"  # key=value pipe logs
 )
 
+# Single source of truth for the DDR spec version emitted by all `ddr new` scaffolds.
+# Bump this on every minor release. Never hardcode version strings inside the scaffold dicts.
+LATEST_DDR_VERSION: str = "0.7"
+
 
 def _safe_yaml() -> YAML:
     return YAML(typ="safe")
@@ -82,6 +86,38 @@ def _now_utc() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _compute_path_or_url(
+    source: Path | None,
+    output: Path | None,
+    override: str | None,
+) -> str | None:
+    """Return the best path_or_url value.
+
+    If override is given, return it verbatim (metadata only).
+    Prefer relative path under CWD or --output parent dir.
+    Fall back to absolute (caller emits NOTE).
+    """
+    if override is not None:
+        return override
+    if source is None:
+        return None
+
+    try:
+        cwd = Path.cwd().resolve()
+        return str(source.resolve().relative_to(cwd))
+    except ValueError:
+        pass
+
+    if output is not None:
+        try:
+            out_parent = output.resolve().parent
+            return str(source.resolve().relative_to(out_parent))
+        except ValueError:
+            pass
+
+    return str(source)
+
+
 @app.command("new")
 def cmd_new(
     sigma_rule: Path | None = typer.Argument(
@@ -108,6 +144,11 @@ def cmd_new(
         "--app",
         help="Splunk app context (default: search; overridden by path inference).",
     ),
+    source_url: str | None = typer.Option(
+        None,
+        "--source-url",
+        help="Override path_or_url (metadata only; hash still from positional source).",
+    ),
 ) -> None:
     """Scaffold a DDR from a Sigma rule, savedsearches.conf, Elastic rule NDJSON, or KQL JSON."""
     # Infer --target elastic when a .ndjson file is provided
@@ -131,6 +172,7 @@ def cmd_new(
             ndjson_path=sigma_rule,
             output=output,
             decision_kind=decision_kind,
+            source_url=source_url,
         )
         return
 
@@ -140,6 +182,7 @@ def cmd_new(
             output=output,
             decision_kind=decision_kind,
             target_kind=target_kind,
+            source_url=source_url,
         )
         return
 
@@ -151,6 +194,7 @@ def cmd_new(
                 decision_kind=decision_kind,
                 splunk_name=splunk_name,
                 splunk_app=splunk_app,
+                source_url=source_url,
             )
         else:
             _cmd_new_splunk(
@@ -183,9 +227,16 @@ def cmd_new(
     ls = rule_data.get("logsource", {})
     content_hash = compute_content_hash(sigma_rule)
 
+    path_or_url_val = _compute_path_or_url(sigma_rule, output, source_url)
+    if path_or_url_val and not source_url and Path(path_or_url_val).is_absolute():
+        typer.echo(
+            "NOTE: path_or_url is absolute. Consider --source-url for portability.",
+            err=True,
+        )
+
     scaffold = _strip_none(
         {
-            "ddr_version": "0.6",
+            "ddr_version": LATEST_DDR_VERSION,
             "id": str(uuid4()),
             "title": f"Suppress: {rule_title}" if decision_kind == "suppress" else rule_title,
             "description": "",
@@ -196,7 +247,7 @@ def cmd_new(
                         "rule_id": rule_id,
                         "content_hash": content_hash,
                         "source": "internal",
-                        "path_or_url": str(sigma_rule),
+                        "path_or_url": path_or_url_val,
                     }
                 ],
             },
@@ -219,12 +270,12 @@ def _cmd_new_elastic(
     ndjson_path: Path | None,
     output: Path | None,
     decision_kind: str,
+    source_url: str | None,
 ) -> None:
     """Scaffold a DDR for an Elastic Security detection rule."""
     rule_id = "TODO-FILL-IN-ELASTIC-RULE-UUID"
     rule_name = "TODO: rule name"
     index_pattern = "TODO: e.g. logs-endpoint.events.process-*"
-    path_or_url_val: str | None = None
 
     if ndjson_path is not None:
         if not ndjson_path.exists():
@@ -252,11 +303,16 @@ def _cmd_new_elastic(
         except Exception:
             pass  # fall back to placeholders
 
-        path_or_url_val = str(ndjson_path)
+    path_or_url_val = _compute_path_or_url(ndjson_path, output, source_url)
+    if path_or_url_val and not source_url and Path(path_or_url_val).is_absolute():
+        typer.echo(
+            "NOTE: path_or_url is absolute. Consider --source-url for portability.",
+            err=True,
+        )
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.6",
+            "ddr_version": LATEST_DDR_VERSION,
             "id": str(uuid4()),
             "title": f"Suppress: {rule_name}" if decision_kind == "suppress" else rule_name,
             "description": "TODO: describe this detection and why tuning is needed.",
@@ -311,12 +367,7 @@ def _cmd_new_kql(
             if isinstance(obj, dict):
                 # ARM envelope
                 body = obj.get("properties", obj)
-                rule_id = (
-                    body.get("displayName")
-                    or obj.get("name")
-                    or obj.get("id")
-                    or rule_id
-                )
+                rule_id = body.get("displayName") or obj.get("name") or obj.get("id") or rule_id
                 rule_name = body.get("displayName") or obj.get("name") or rule_name
                 # M365D shape
                 rule_id = body.get("id") or body.get("displayName") or rule_id
@@ -329,7 +380,7 @@ def _cmd_new_kql(
     optional_field = "workspace" if target_kind == "kql-sentinel" else "table"
     scaffold = _strip_none(
         {
-            "ddr_version": "0.7",
+            "ddr_version": LATEST_DDR_VERSION,
             "id": str(uuid4()),
             "title": f"Suppress: {rule_name}" if decision_kind == "suppress" else rule_name,
             "description": "TODO: describe this detection and why tuning is needed.",
@@ -423,7 +474,7 @@ def _cmd_new_splunk(
 
     scaffold = _strip_none(
         {
-            "ddr_version": "0.6",
+            "ddr_version": LATEST_DDR_VERSION,
             "id": str(uuid4()),
             "title": f"TODO: title for {splunk_name}",
             "description": "TODO: describe this detection and why tuning is needed.",
@@ -457,6 +508,7 @@ def _cmd_new_splunk_from_conf(
     decision_kind: str,
     splunk_name: str | None,
     splunk_app: str,
+    source_url: str | None,
 ) -> None:
     """Scaffold from a real savedsearches.conf — computes query_hash, infers app."""
     from ddr._internal.splunk_conf import (
@@ -520,9 +572,16 @@ def _cmd_new_splunk_from_conf(
     inferred_app = infer_app_from_path(conf_path)
     app = inferred_app if splunk_app == "search" and inferred_app else splunk_app
 
+    path_or_url_val = _compute_path_or_url(conf_path, output, source_url)
+    if path_or_url_val and not source_url and Path(path_or_url_val).is_absolute():
+        typer.echo(
+            "NOTE: path_or_url is absolute. Consider --source-url for portability.",
+            err=True,
+        )
+
     scaffold = _strip_none(
         {
-            "ddr_version": "0.6",
+            "ddr_version": LATEST_DDR_VERSION,
             "id": str(uuid4()),
             "title": f"TODO: title for {name}",
             "description": "TODO: describe this detection and why tuning is needed.",
@@ -533,7 +592,7 @@ def _cmd_new_splunk_from_conf(
                         "name": name,
                         "app": app,
                         "query_hash": query_hash,
-                        "path_or_url": str(conf_path),
+                        "path_or_url": path_or_url_val,
                     }
                 ],
             },
@@ -1525,9 +1584,7 @@ def cmd_export_elastic_exception(
     output: Path | None = typer.Option(
         None, "--output", "-o", help="Write exception NDJSON here (default: stdout)."
     ),
-    list_id: str = typer.Option(
-        "ddr-exceptions", "--list-id", help="Elastic exception list ID."
-    ),
+    list_id: str = typer.Option("ddr-exceptions", "--list-id", help="Elastic exception list ID."),
 ) -> None:
     """Emit a Kibana exception list item NDJSON from an Elastic suppress DDR record."""
     if not path.exists():

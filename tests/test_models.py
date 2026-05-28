@@ -295,6 +295,12 @@ def test_evidence_valid():
     assert ev.type == EvidenceType.ticket
 
 
+def test_evidence_type_note_accepted():
+    """EvidenceType accepts the new 'note' value (SCHEMA-01 closure)."""
+    ev = Evidence.model_validate({"type": "note", "ref": "INT-42", "note": "Internal reference."})
+    assert ev.type == EvidenceType.note
+
+
 # --- v0.3: SplunkQueryRef ---
 
 

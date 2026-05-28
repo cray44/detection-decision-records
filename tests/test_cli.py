@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -663,6 +664,47 @@ def test_new_splunk_scaffold_emits_query_refs(tmp_path):
     result = runner.invoke(app, ["new", "--target", "splunk", "--name", "My Detection"])
     assert result.exit_code == 0
     assert "query_refs:" in result.output
+
+
+# ---------------------------------------------------------------------------
+# v0.7.1: UX-01 --source-url and relative path_or_url (per-target coverage)
+# ---------------------------------------------------------------------------
+
+def test_compute_path_or_url_override():
+    from src.ddr.cli import _compute_path_or_url
+    assert _compute_path_or_url(Path("a.yml"), None, "https://github.com/x/y") == "https://github.com/x/y"
+
+
+def test_compute_path_or_url_absolute_fallback(tmp_path):
+    from src.ddr.cli import _compute_path_or_url
+    # Construct an absolute path that is outside any reasonable CWD
+    outside = Path("C:/Windows/Temp/not/real/for/ddr/test.yml") if os.name == "nt" else Path("/tmp/not/real/for/ddr/test.yml")
+    result = _compute_path_or_url(outside, None, None)
+    assert Path(result).is_absolute()
+
+
+def test_new_sigma_with_source_url(tmp_path):
+    rule = tmp_path / "rule.yml"
+    rule.write_text(
+        "id: d7a95147-145f-4678-b555-b7a3c9b16830\ntitle: Test\n"
+        "logsource:\n  category: process_creation\n  product: windows\n"
+        "detection:\n  selection:\n    CommandLine: '*'\n  condition: selection\n"
+    )
+    result = runner.invoke(app, ["new", str(rule), "--source-url", "git:deadbeef"])
+    assert result.exit_code == 0
+    assert "git:deadbeef" in result.output
+
+
+def test_new_splunk_with_source_url(tmp_path):
+    # Use a real conf so we go through the from-conf path that actually emits path_or_url
+    conf = tmp_path / "savedsearches.conf"
+    conf.write_text("[Foo]\nsearch = index=main\n", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        ["new", "--target", "splunk", str(conf), "--name", "Foo", "--source-url", "https://example.com/conf"],
+    )
+    assert result.exit_code == 0
+    assert "https://example.com/conf" in result.output
 
 
 # ---------------------------------------------------------------------------
