@@ -650,9 +650,7 @@ def test_elastic_query_ref_rule_id_accepts_no_hyphens():
 
 
 def test_elastic_target_single_ref():
-    t = ElasticTarget.model_validate(
-        {"kind": "elastic", "query_refs": [_elastic_query_ref()]}
-    )
+    t = ElasticTarget.model_validate({"kind": "elastic", "query_refs": [_elastic_query_ref()]})
     assert t.kind == "elastic"
     assert len(t.query_refs) == 1
 
@@ -717,9 +715,7 @@ def test_elastic_tuning_optional_title():
 
 def test_elastic_tuning_extra_field_rejected():
     with pytest.raises(ValidationError):
-        ElasticTuning.model_validate(
-            {"kind": "elastic", "kql_filter": "host=foo", "bad": "field"}
-        )
+        ElasticTuning.model_validate({"kind": "elastic", "kql_filter": "host=foo", "bad": "field"})
 
 
 # --- v0.6: DDRRecord with Elastic target ---
@@ -824,8 +820,12 @@ def test_ddr_record_elastic_fixture(valid_fixtures_dir):
 
 
 def _kql_sentinel_ref(**kwargs) -> dict:
-    return {"rule_id": "sentinel-rule-001", "name": "Test Sentinel Rule", "source": "internal",
-            **kwargs}
+    return {
+        "rule_id": "sentinel-rule-001",
+        "name": "Test Sentinel Rule",
+        "source": "internal",
+        **kwargs,
+    }
 
 
 def _kql_sentinel_suppress_record(**overrides) -> dict:
@@ -913,8 +913,12 @@ def test_kql_sentinel_kind_mismatch_rejected():
 
 
 def _kql_m365d_ref(**kwargs) -> dict:
-    return {"rule_id": "m365d-detection-001", "name": "Test M365D Detection", "source": "internal",
-            **kwargs}
+    return {
+        "rule_id": "m365d-detection-001",
+        "name": "Test M365D Detection",
+        "source": "internal",
+        **kwargs,
+    }
 
 
 def _kql_m365d_suppress_record(**overrides) -> dict:

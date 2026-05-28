@@ -133,9 +133,7 @@ def test_hash_identity_with_backslash_continuation(tmp_path):
 def test_hash_identity_crlf_in_cloud_json(tmp_path):
     """Cloud JSON with \\r\\n in SPL string hashes the same as LF-only."""
     spl_lf = "index=auth | stats count by src_ip | where count > 50"
-    spl_crlf = "index=auth | stats count by src_ip | where count > 50".replace(
-        " | ", " |\r\n  "
-    )
+    spl_crlf = "index=auth | stats count by src_ip | where count > 50".replace(" | ", " |\r\n  ")
 
     def _cloud_hash(spl: str) -> str:
         f = tmp_path / f"cloud_{hash(spl)}.json"

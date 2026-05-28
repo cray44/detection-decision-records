@@ -670,15 +670,25 @@ def test_new_splunk_scaffold_emits_query_refs(tmp_path):
 # v0.7.1: UX-01 --source-url and relative path_or_url (per-target coverage)
 # ---------------------------------------------------------------------------
 
+
 def test_compute_path_or_url_override():
     from src.ddr.cli import _compute_path_or_url
-    assert _compute_path_or_url(Path("a.yml"), None, "https://github.com/x/y") == "https://github.com/x/y"
+
+    assert (
+        _compute_path_or_url(Path("a.yml"), None, "https://github.com/x/y")
+        == "https://github.com/x/y"
+    )
 
 
 def test_compute_path_or_url_absolute_fallback(tmp_path):
     from src.ddr.cli import _compute_path_or_url
+
     # Construct an absolute path that is outside any reasonable CWD
-    outside = Path("C:/Windows/Temp/not/real/for/ddr/test.yml") if os.name == "nt" else Path("/tmp/not/real/for/ddr/test.yml")  # noqa: E501
+    outside = (
+        Path("C:/Windows/Temp/not/real/for/ddr/test.yml")
+        if os.name == "nt"
+        else Path("/tmp/not/real/for/ddr/test.yml")
+    )  # noqa: E501
     result = _compute_path_or_url(outside, None, None)
     assert Path(result).is_absolute()
 
@@ -701,7 +711,16 @@ def test_new_splunk_with_source_url(tmp_path):
     conf.write_text("[Foo]\nsearch = index=main\n", encoding="utf-8")
     result = runner.invoke(
         app,
-        ["new", "--target", "splunk", str(conf), "--name", "Foo", "--source-url", "https://example.com/conf"],
+        [
+            "new",
+            "--target",
+            "splunk",
+            str(conf),
+            "--name",
+            "Foo",
+            "--source-url",
+            "https://example.com/conf",
+        ],
     )
     assert result.exit_code == 0
     assert "https://example.com/conf" in result.output
@@ -923,9 +942,7 @@ def test_new_elastic_accept_risk_decision(tmp_path):
 
 
 def test_validate_elastic_fixture(valid_fixtures_dir):
-    result = runner.invoke(
-        app, ["validate", str(valid_fixtures_dir / "elastic_suppress.yml")]
-    )
+    result = runner.invoke(app, ["validate", str(valid_fixtures_dir / "elastic_suppress.yml")])
     assert result.exit_code == 0
     assert "OK" in result.output
 
@@ -988,7 +1005,7 @@ def _make_elastic_ddr(
     ddr = tmp_path / "elastic_ddr.yml"
     ddr.write_text(
         _ELASTIC_DDR_TEMPLATE.format(
-            old_hash=old_hash[len("sha256:"):],
+            old_hash=old_hash[len("sha256:") :],
             ndjson_path=str(ndjson_path).replace("\\", "/"),
         ),
         encoding="utf-8",
@@ -1023,12 +1040,12 @@ def test_refresh_hash_elastic_no_path(tmp_path):
     ddr = tmp_path / "ddr.yml"
     ddr.write_text(
         'ddr_version: "0.6"\nid: a1b2c3d4-e5f6-7890-abcd-ef1234567890\n'
-        'title: t\ndescription: d\n'
-        'target:\n  kind: elastic\n  query_refs:\n'
-        '    - rule_id: abc\n      name: r\n      index_pattern: logs-*\n      source: internal\n'
-        'decision:\n  kind: deprecate\n  rationale: r\n'
+        "title: t\ndescription: d\n"
+        "target:\n  kind: elastic\n  query_refs:\n"
+        "    - rule_id: abc\n      name: r\n      index_pattern: logs-*\n      source: internal\n"
+        "decision:\n  kind: deprecate\n  rationale: r\n"
         'lifecycle:\n  status: draft\n  created_on: "2026-01-01T00:00:00Z"\n'
-        'provenance:\n  author: t\n',
+        "provenance:\n  author: t\n",
         encoding="utf-8",
     )
     result = runner.invoke(app, ["refresh-hash", str(ddr)])
@@ -1045,15 +1062,15 @@ def test_refresh_hash_elastic_multi_ref_rule_override_fails(tmp_path):
     ddr = tmp_path / "multi.yml"
     ddr.write_text(
         'ddr_version: "0.6"\nid: a1b2c3d4-e5f6-7890-abcd-ef1234567890\n'
-        'title: t\ndescription: d\n'
-        'target:\n  kind: elastic\n  query_refs:\n'
-        f'    - rule_id: r1\n      name: R1\n      index_pattern: logs-*\n'
+        "title: t\ndescription: d\n"
+        "target:\n  kind: elastic\n  query_refs:\n"
+        f"    - rule_id: r1\n      name: R1\n      index_pattern: logs-*\n"
         f'      source: internal\n      path_or_url: "{str(ndjson1).replace(chr(92), "/")}"\n'
-        f'    - rule_id: r2\n      name: R2\n      index_pattern: logs-*\n'
+        f"    - rule_id: r2\n      name: R2\n      index_pattern: logs-*\n"
         f'      source: internal\n      path_or_url: "{str(ndjson2).replace(chr(92), "/")}"\n'
-        'decision:\n  kind: deprecate\n  rationale: r\n'
+        "decision:\n  kind: deprecate\n  rationale: r\n"
         'lifecycle:\n  status: draft\n  created_on: "2026-01-01T00:00:00Z"\n'
-        'provenance:\n  author: t\n',
+        "provenance:\n  author: t\n",
         encoding="utf-8",
     )
     result = runner.invoke(app, ["refresh-hash", str(ddr), "--rule", str(ndjson1)])
@@ -1068,6 +1085,7 @@ def test_export_elastic_exception_simple_kql(tmp_path):
     result = runner.invoke(app, ["export-elastic-exception", str(ddr)])
     assert result.exit_code == 0
     import json
+
     obj = json.loads(result.output.strip())
     assert obj["type"] == "simple"
     assert len(obj["entries"]) == 1
@@ -1092,6 +1110,7 @@ def test_export_elastic_exception_custom_list_id(tmp_path):
     )
     assert result.exit_code == 0
     import json
+
     obj = json.loads(result.output.strip())
     assert obj["list_id"] == "my-team-exceptions"
 
@@ -1125,9 +1144,7 @@ def test_export_kql_sentinel_stdout(valid_fixtures_dir):
 
 
 def test_export_kql_m365d_stdout(valid_fixtures_dir):
-    result = runner.invoke(
-        app, ["export-kql", str(valid_fixtures_dir / "kql_m365d_suppress.yml")]
-    )
+    result = runner.invoke(app, ["export-kql", str(valid_fixtures_dir / "kql_m365d_suppress.yml")])
     assert result.exit_code == 0
     assert "| where not (" in result.output
 
@@ -1144,9 +1161,7 @@ def test_export_kql_writes_file(valid_fixtures_dir, tmp_path):
 
 
 def test_export_kql_wrong_target_fails(valid_fixtures_dir):
-    result = runner.invoke(
-        app, ["export-kql", str(valid_fixtures_dir / "suppress_basic.yml")]
-    )
+    result = runner.invoke(app, ["export-kql", str(valid_fixtures_dir / "suppress_basic.yml")])
     assert result.exit_code == 1
     assert "kql-sentinel or kql-m365d" in result.output
 
@@ -1176,16 +1191,19 @@ def test_new_kql_m365d_scaffold(tmp_path):
 
 def test_new_kql_sentinel_from_json(tmp_path):
     import json
+
     sentinel_json = tmp_path / "sentinel_rule.json"
     sentinel_json.write_text(
-        json.dumps({
-            "name": "my-rule",
-            "properties": {
-                "displayName": "My Sentinel Rule",
-                "query": "SecurityEvent | where EventID == 4625",
-                "severity": "High",
+        json.dumps(
+            {
+                "name": "my-rule",
+                "properties": {
+                    "displayName": "My Sentinel Rule",
+                    "query": "SecurityEvent | where EventID == 4625",
+                    "severity": "High",
+                },
             }
-        }),
+        ),
         encoding="utf-8",
     )
     result = runner.invoke(app, ["new", "--target", "kql-sentinel", str(sentinel_json)])
@@ -1220,15 +1238,18 @@ def test_list_kql_m365d_shows_target(valid_fixtures_dir):
 
 def test_refresh_hash_kql_sentinel_updates(tmp_path):
     import json
+
     rule_file = tmp_path / "sentinel_rule.json"
     rule_file.write_text(
-        json.dumps({
-            "properties": {
-                "displayName": "Test",
-                "query": "SecurityEvent | where EventID == 4625",
-                "severity": "High",
+        json.dumps(
+            {
+                "properties": {
+                    "displayName": "Test",
+                    "query": "SecurityEvent | where EventID == 4625",
+                    "severity": "High",
+                }
             }
-        }),
+        ),
         encoding="utf-8",
     )
     ddr_file = tmp_path / "ddr.yml"
@@ -1371,9 +1392,7 @@ def test_new_splunk_format_invalid_fails():
 
 def test_new_splunk_cloud_app_override_emits_note(tmp_path):
     fixture = _CLOUD_FIXTURES / "full_envelope.json"
-    result = runner.invoke(
-        app, ["new", "--target", "splunk", str(fixture), "--app", "custom-app"]
-    )
+    result = runner.invoke(app, ["new", "--target", "splunk", str(fixture), "--app", "custom-app"])
     assert result.exit_code == 0, result.output
     # NOTE should be on stderr; CliRunner mixes stdout+stderr by default
     assert "custom-app" in result.output
@@ -1383,7 +1402,14 @@ def test_new_splunk_cloud_with_source_url(tmp_path):
     fixture = _CLOUD_FIXTURES / "full_envelope.json"
     result = runner.invoke(
         app,
-        ["new", "--target", "splunk", str(fixture), "--source-url", "https://github.com/x/y/blob/main/export.json"],
+        [
+            "new",
+            "--target",
+            "splunk",
+            str(fixture),
+            "--source-url",
+            "https://github.com/x/y/blob/main/export.json",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert "https://github.com/x/y/blob/main/export.json" in result.output
@@ -1557,7 +1583,14 @@ def test_new_kql_sentinel_with_source_url(tmp_path):
     )
     result = runner.invoke(
         app,
-        ["new", "--target", "kql-sentinel", str(sentinel_json), "--source-url", "https://example.com/rule.json"],
+        [
+            "new",
+            "--target",
+            "kql-sentinel",
+            str(sentinel_json),
+            "--source-url",
+            "https://example.com/rule.json",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert "https://example.com/rule.json" in result.output

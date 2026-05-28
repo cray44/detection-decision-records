@@ -23,14 +23,14 @@ from ddr.models.record import DDRRecord, ElasticTuning, SuppressDecision
 
 # Simple single-field KQL patterns
 _QUOTED_RE = re.compile(r'^([\w.]+)\s*:\s*"([^"]*)"$')
-_WILDCARD_RE = re.compile(r'^([\w.]+)\s*:\s*([\w.*?/\-]+[*?][\w.*?/\-]*)$')
-_UNQUOTED_RE = re.compile(r'^([\w.]+)\s*:\s*([\w./\-]+)$')
+_WILDCARD_RE = re.compile(r"^([\w.]+)\s*:\s*([\w.*?/\-]+[*?][\w.*?/\-]*)$")
+_UNQUOTED_RE = re.compile(r"^([\w.]+)\s*:\s*([\w./\-]+)$")
 
 # AND-split: only split on "and" surrounded by whitespace (not inside quotes)
 _AND_SPLIT_RE = re.compile(r"\s+and\s+", re.IGNORECASE)
 
 # Detect complex KQL patterns that the simple parser cannot handle
-_COMPLEX_RE = re.compile(r'[\(\)]|\bor\b|\bnot\b', re.IGNORECASE)
+_COMPLEX_RE = re.compile(r"[\(\)]|\bor\b|\bnot\b", re.IGNORECASE)
 
 
 def _parse_simple_condition(cond: str) -> dict | None:
@@ -94,8 +94,7 @@ def build_elastic_exception(
         )
     if record.target.kind != "elastic":
         raise ValueError(
-            f"export-elastic-exception requires target.kind='elastic', "
-            f"got '{record.target.kind}'"
+            f"export-elastic-exception requires target.kind='elastic', got '{record.target.kind}'"
         )
 
     tuning: ElasticTuning = record.decision.tuning  # type: ignore[assignment]

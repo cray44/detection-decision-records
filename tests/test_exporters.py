@@ -216,7 +216,7 @@ def test_elastic_exception_and_chain():
 
 def test_elastic_exception_wildcard_entry():
     data = _elastic_suppress_data()
-    data["decision"]["tuning"]["kql_filter"] = 'agent.name : nessus*'
+    data["decision"]["tuning"]["kql_filter"] = "agent.name : nessus*"
     record = DDRRecord.model_validate(data)
     item = build_elastic_exception(record)
     item.pop("_is_manual")

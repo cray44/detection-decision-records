@@ -17,8 +17,7 @@ def build_kql_fragment(record: DDRRecord) -> str:
     """Return a Kusto | where not (...) fragment string."""
     if record.target.kind not in _KQL_TARGET_KINDS:
         raise ValueError(
-            f"export-kql requires target.kind kql-sentinel or kql-m365d, "
-            f"got '{record.target.kind}'"
+            f"export-kql requires target.kind kql-sentinel or kql-m365d, got '{record.target.kind}'"
         )
     if not isinstance(record.decision, SuppressDecision):
         raise ValueError(
@@ -28,9 +27,7 @@ def build_kql_fragment(record: DDRRecord) -> str:
 
     tuning = record.decision.tuning
     if not isinstance(tuning, (KqlSentinelTuning, KqlM365DTuning)):
-        raise ValueError(
-            f"tuning.kind must be kql-sentinel or kql-m365d, got '{tuning.kind}'"
-        )
+        raise ValueError(f"tuning.kind must be kql-sentinel or kql-m365d, got '{tuning.kind}'")
 
     expires = (
         record.lifecycle.expires_on.strftime("%Y-%m-%d")

@@ -22,7 +22,7 @@ def _base_rule(**kwargs) -> dict:
         "name": "Test Rule",
         "type": "eql",
         "language": "eql",
-        "query": "process where process.name : \"cmd.exe\"",
+        "query": 'process where process.name : "cmd.exe"',
         "risk_score": 47,
         "severity": "medium",
         "tags": ["Windows"],
@@ -92,8 +92,8 @@ def test_non_volatile_field_change_affects_hash(tmp_path):
 def test_query_change_affects_hash(tmp_path):
     f1 = tmp_path / "rule_v1.ndjson"
     f2 = tmp_path / "rule_v2.ndjson"
-    _write_ndjson(f1, _base_rule(query="process where process.name : \"cmd.exe\""))
-    _write_ndjson(f2, _base_rule(query="process where process.name : \"powershell.exe\""))
+    _write_ndjson(f1, _base_rule(query='process where process.name : "cmd.exe"'))
+    _write_ndjson(f2, _base_rule(query='process where process.name : "powershell.exe"'))
     assert compute_elastic_hash(f1) != compute_elastic_hash(f2)
 
 
@@ -120,10 +120,24 @@ def test_fixture_wrapped_same_hash_as_plain():
 
 def test_key_order_does_not_affect_hash(tmp_path):
     """Keys sorted before hashing — insertion order is irrelevant."""
-    rule_a = {"b_field": 2, "a_field": 1, "rule_id": "x", "name": "r", "type": "eql",
-               "language": "eql", "query": "q", "risk_score": 47, "severity": "medium",
-               "tags": [], "enabled": True, "from": "now-360s", "to": "now",
-               "interval": "5m", "max_signals": 100, "threat": []}
+    rule_a = {
+        "b_field": 2,
+        "a_field": 1,
+        "rule_id": "x",
+        "name": "r",
+        "type": "eql",
+        "language": "eql",
+        "query": "q",
+        "risk_score": 47,
+        "severity": "medium",
+        "tags": [],
+        "enabled": True,
+        "from": "now-360s",
+        "to": "now",
+        "interval": "5m",
+        "max_signals": 100,
+        "threat": [],
+    }
     rule_b = dict(sorted(rule_a.items()))
     f1 = tmp_path / "r_a.ndjson"
     f2 = tmp_path / "r_b.ndjson"

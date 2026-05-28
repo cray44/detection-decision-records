@@ -20,7 +20,7 @@ def _base_properties(**kwargs) -> dict:
         "description": "A test rule.",
         "severity": "Medium",
         "enabled": True,
-        "query": "SigninLogs\n| where ResultType == \"50057\"",
+        "query": 'SigninLogs\n| where ResultType == "50057"',
         "queryFrequency": "PT1H",
         "queryPeriod": "PT1H",
         "triggerOperator": "GreaterThan",
@@ -37,7 +37,7 @@ def _arm_envelope(**prop_kwargs) -> dict:
         "id": "/subscriptions/00000000/resourceGroups/rg/providers/sentinel/rule1",
         "name": "rule1",
         "type": "Microsoft.SecurityInsights/alertRules",
-        "etag": "\"abc123\"",
+        "etag": '"abc123"',
         "systemData": {"createdAt": "2024-01-01T00:00:00Z"},
         "properties": _base_properties(**prop_kwargs),
     }
@@ -62,8 +62,8 @@ def test_volatile_etag_does_not_affect_hash(tmp_path):
     f2 = tmp_path / "r2.json"
     env1 = _arm_envelope()
     env2 = _arm_envelope()
-    env1["etag"] = "\"etag-v1\""
-    env2["etag"] = "\"etag-v999\""
+    env1["etag"] = '"etag-v1"'
+    env2["etag"] = '"etag-v999"'
     _write_json(f1, env1)
     _write_json(f2, env2)
     assert compute_sentinel_hash(f1) == compute_sentinel_hash(f2)
@@ -72,12 +72,22 @@ def test_volatile_etag_does_not_affect_hash(tmp_path):
 def test_volatile_timestamps_do_not_affect_hash(tmp_path):
     f1 = tmp_path / "r1.json"
     f2 = tmp_path / "r2.json"
-    _write_json(f1, _arm_envelope(lastModifiedUtc="2026-01-01T00:00:00Z",
-                                   lastRunTime="2026-05-01T00:00:00Z",
-                                   nextRunTime="2026-05-01T01:00:00Z"))
-    _write_json(f2, _arm_envelope(lastModifiedUtc="2026-06-01T00:00:00Z",
-                                   lastRunTime="2026-06-01T00:00:00Z",
-                                   nextRunTime="2026-06-01T01:00:00Z"))
+    _write_json(
+        f1,
+        _arm_envelope(
+            lastModifiedUtc="2026-01-01T00:00:00Z",
+            lastRunTime="2026-05-01T00:00:00Z",
+            nextRunTime="2026-05-01T01:00:00Z",
+        ),
+    )
+    _write_json(
+        f2,
+        _arm_envelope(
+            lastModifiedUtc="2026-06-01T00:00:00Z",
+            lastRunTime="2026-06-01T00:00:00Z",
+            nextRunTime="2026-06-01T01:00:00Z",
+        ),
+    )
     assert compute_sentinel_hash(f1) == compute_sentinel_hash(f2)
 
 
@@ -85,23 +95,26 @@ def test_all_volatile_fields_stripped(tmp_path):
     f1 = tmp_path / "clean.json"
     f2 = tmp_path / "volatile.json"
     _write_json(f1, _arm_envelope())
-    _write_json(f2, _arm_envelope(
-        lastModifiedUtc="2026-06-01T00:00:00Z",
-        lastRunTime="2026-06-01T00:00:00Z",
-        nextRunTime="2026-06-01T01:00:00Z",
-        lastDeploymentStatus="Success",
-        lastDeploymentStatusMessage="OK",
-        alertRuleTemplateName="tmpl-uuid",
-        templateVersion="1.0.1",
-    ))
+    _write_json(
+        f2,
+        _arm_envelope(
+            lastModifiedUtc="2026-06-01T00:00:00Z",
+            lastRunTime="2026-06-01T00:00:00Z",
+            nextRunTime="2026-06-01T01:00:00Z",
+            lastDeploymentStatus="Success",
+            lastDeploymentStatusMessage="OK",
+            alertRuleTemplateName="tmpl-uuid",
+            templateVersion="1.0.1",
+        ),
+    )
     assert compute_sentinel_hash(f1) == compute_sentinel_hash(f2)
 
 
 def test_non_volatile_query_change_affects_hash(tmp_path):
     f1 = tmp_path / "r1.json"
     f2 = tmp_path / "r2.json"
-    _write_json(f1, _arm_envelope(query="SigninLogs | where ResultType == \"50057\""))
-    _write_json(f2, _arm_envelope(query="SigninLogs | where ResultType == \"50055\""))
+    _write_json(f1, _arm_envelope(query='SigninLogs | where ResultType == "50057"'))
+    _write_json(f2, _arm_envelope(query='SigninLogs | where ResultType == "50055"'))
     assert compute_sentinel_hash(f1) != compute_sentinel_hash(f2)
 
 
@@ -144,11 +157,12 @@ def test_fixture_is_deterministic():
 def test_fixture_volatile_fields_do_not_affect_hash(tmp_path):
     """Mutating volatile fields in the fixture produces the same hash."""
     import json as _json
+
     orig = _json.loads((_FIXTURES / "sentinel_rule.json").read_text(encoding="utf-8"))
     orig_hash = compute_sentinel_hash(_FIXTURES / "sentinel_rule.json")
 
     mutated = {**orig}
-    mutated["etag"] = "\"brand-new-etag\""
+    mutated["etag"] = '"brand-new-etag"'
     mutated["properties"] = {
         **orig["properties"],
         "lastModifiedUtc": "2099-01-01T00:00:00Z",
