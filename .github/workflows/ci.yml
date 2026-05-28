@@ -50,7 +50,7 @@ jobs:
       - name: Regenerate schema and assert no drift
         run: |
           python -m ddr._internal.schema_export --output /tmp/regenerated.schema.json
-          diff -u spec/ddr-v0.1.schema.json /tmp/regenerated.schema.json
+          diff -u spec/ddr-v0.8.schema.json /tmp/regenerated.schema.json
 
   examples:
     name: Validate worked examples
