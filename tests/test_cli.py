@@ -237,8 +237,9 @@ def test_new_sigma_suppress_scaffold_includes_filter_title(tmp_path):
     assert "filter_title" in result.output
 
 
-def test_new_sigma_path_or_url_not_absolute(tmp_path):
-    """path_or_url must preserve the caller-supplied path, not resolve to absolute."""
+def test_new_sigma_path_or_url_not_absolute(tmp_path, monkeypatch):
+    """path_or_url is relative when source is under CWD."""
+    monkeypatch.chdir(tmp_path)
     rule = tmp_path / "test_rule.yml"
     rule.write_text(
         "title: T\nid: d7a95147-145f-4678-b555-b7a3c9b16832\n"
@@ -246,13 +247,9 @@ def test_new_sigma_path_or_url_not_absolute(tmp_path):
         "    field: v\n  condition: selection\n",
         encoding="utf-8",
     )
-    # Pass a relative path — scaffold must echo it back as-is
-    import os
-
-    rel = os.path.relpath(rule)
-    result = runner.invoke(app, ["new", rel])
+    result = runner.invoke(app, ["new", "test_rule.yml"])
     assert result.exit_code == 0
-    assert rel in result.output
+    assert "test_rule.yml" in result.output
 
 
 def test_new_to_output_file(tmp_path):
@@ -688,7 +685,7 @@ def test_compute_path_or_url_absolute_fallback(tmp_path):
         Path("C:/Windows/Temp/not/real/for/ddr/test.yml")
         if os.name == "nt"
         else Path("/tmp/not/real/for/ddr/test.yml")
-    )  # noqa: E501
+    )
     result = _compute_path_or_url(outside, None, None)
     assert Path(result).is_absolute()
 
